@@ -2,6 +2,7 @@ import easyocr
 import numpy as np
 import ocrmypdf
 import tempfile
+import re
 from pathlib import Path
 from PIL import Image
 import cv2
@@ -15,6 +16,11 @@ LANG_MAP = {
     "bn": "ben",
     "ar": "ara"
 }
+
+# Bangla Unicode range: \u0980-\u09FF
+BANGLA_PATTERN = re.compile(r'[\u0980-\u09FF]')
+ENGLISH_PATTERN = re.compile(r'[A-Za-z]')
+ARABIC_PATTERN = re.compile(r'[\u0600-\u06FF]')
 
 
 def _resize_for_ocr(img, target_max_dim=2500):
@@ -51,7 +57,13 @@ def preprocess_with_ocrmypdf_easyocr(img, langs):
 
         if isinstance(img, np.ndarray):
             img_pil = Image.fromarray(img)
+        elif isinstance(img, Image.Image):
+            img_pil = img
+        elif isinstance(img, (str, Path)):
+            # Load image from file path
+            img_pil = Image.open(img)
         else:
+            # Assume it's already a PIL Image or compatible
             img_pil = img
 
         img_pil.save(input_img_path)
@@ -104,6 +116,20 @@ def get_reader(langs):
     if not langs:
         langs = ["en"]
 
+    # For Bangla-only mode, force only Bangla to reduce English hallucinations
+    if langs == ['bn']:
+        key = "bn_only"
+        if key not in readers:
+            try:
+                import torch
+                if torch.cuda.is_available():
+                    readers[key] = easyocr.Reader(['bn'], gpu=True, verbose=False)
+                else:
+                    readers[key] = easyocr.Reader(['bn'], gpu=False, verbose=False)
+            except Exception:
+                readers[key] = easyocr.Reader(['bn'], gpu=False, verbose=False)
+        return readers[key]
+
     key = "_".join(sorted(langs))
 
     if key not in readers:
@@ -119,8 +145,116 @@ def get_reader(langs):
     return readers[key]
 
 
-def run_easyocr(img, langs, use_ocrmypdf=True):
-    """Run EasyOCR with optional preprocessing and conservative filtering."""
+def _filter_hallucinated_english_token(token: str, langs: list, mode: str = "english") -> str:
+    """
+    AGGRESSIVE filtering of hallucinated English characters from a single token.
+    In Bangla-only mode, removes virtually all English except absolutely essential cases.
+    """
+    if not token:
+        return token
+
+    # If English is explicitly requested, keep everything
+    if 'en' in langs:
+        return token
+
+    has_bangla = bool(BANGLA_PATTERN.search(token))
+    has_arabic = bool(ARABIC_PATTERN.search(token))
+    has_english = bool(ENGLISH_PATTERN.search(token))
+
+    # Bangla-only mode - VERY AGGRESSIVE filtering
+    if 'bn' in langs and 'en' not in langs:
+        if has_english and not has_bangla:
+            # Pure English token in Bangla-only mode
+            # Only allow very specific cases:
+            # 1. Pure numbers (no letters)
+            if re.match(r'^\d+$', token):
+                return token
+            # 2. Common scientific/mathematical symbols
+            if token in {'kg', 'cm', 'mm', 'km', 'mg', 'ml', 'pH', 'DNA', 'RNA', 'CO2', 'H2O'}:
+                return token
+            # 3. Very short single letters (e.g., variables)
+            if len(token) == 1 and token in 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ':
+                return ""  # Remove even single letters
+            return ""  # Remove all other English
+            
+        elif has_english and has_bangla:
+            # Mixed token - be very aggressive about removing English
+            bangla_chars = len(re.findall(r'[\u0980-\u09FF]', token))
+            english_chars = len(re.findall(r'[A-Za-z]', token))
+            
+            # If more than 30% English in a mixed token, likely hallucination
+            if english_chars / (bangla_chars + english_chars) > 0.3:
+                # Strip all English characters
+                cleaned = re.sub(r'[A-Za-z]', '', token)
+                return cleaned.strip() if cleaned.strip() else ""
+            else:
+                # Keep mixed token but warn that some English remains
+                return token
+
+    # Arabic-only mode - similar aggressive filtering
+    if 'ar' in langs and 'en' not in langs:
+        if has_english and not has_arabic:
+            if re.match(r'^\d+$', token):
+                return token
+            return ""
+        elif has_english and has_arabic:
+            cleaned = re.sub(r'[A-Za-z]', '', token)
+            return cleaned.strip() if cleaned.strip() else ""
+
+    return token
+
+
+def _filter_hallucinated_english(text: str, langs: list, mode: str = "english") -> str:
+    """
+    AGGRESSIVE filtering of hallucinated English words/characters from OCR output.
+    For Bangla-only mode, removes virtually all English text.
+    """
+    if not text:
+        return text
+
+    # If English is requested, no filtering needed
+    if 'en' in langs:
+        return text
+
+    # Apply token-level filtering
+    tokens = text.split()
+    filtered_tokens = []
+
+    for token in tokens:
+        cleaned = _filter_hallucinated_english_token(token, langs)
+        if cleaned:
+            filtered_tokens.append(cleaned)
+
+    result = ' '.join(filtered_tokens)
+    
+    # Additional sentence-level filtering for Bangla
+    if 'bn' in langs and 'en' not in langs:
+        # Remove any remaining isolated English words that slipped through
+        words = result.split()
+        final_words = []
+        
+        for word in words:
+            # Check if word is purely English (no Bangla chars)
+            if ENGLISH_PATTERN.search(word) and not BANGLA_PATTERN.search(word):
+                # Skip unless it's a number or very specific exception
+                if re.match(r'^\d+[.,:]?$', word):  # Numbers with punctuation
+                    final_words.append(word)
+                # Otherwise skip this English word
+            else:
+                final_words.append(word)
+        
+        result = ' '.join(final_words)
+    
+    # Clean up any double spaces
+    result = re.sub(r' {2,}', ' ', result).strip()
+    
+    return result
+    
+    return result
+
+
+def run_easyocr(img, langs, use_ocrmypdf=True, mode="english"):
+    """Run EasyOCR with optional preprocessing and mode-based filtering."""
     import logging
     logger = logging.getLogger(__name__)
     
@@ -132,23 +266,44 @@ def run_easyocr(img, langs, use_ocrmypdf=True):
     
     logger.info(f"Running EasyOCR with languages: {langs}")
 
-    result = reader.readtext(
-        img,
-        detail=1,
-        paragraph=False,
-        text_threshold=0.75,
-        low_text=0.45,
-        link_threshold=0.45,
-        min_size=15,
-        canvas_size=2560,
-        mag_ratio=1.5,
-        rotation_info=None,
-        width_ths=0.7,
-        height_ths=0.7,
-        slope_ths=0.1,
-        allowlist=None,
-        blocklist=None
-    )
+    # Adjust thresholds for Bangla-only mode to reduce English hallucinations
+    if mode == "bangla":
+        # Stricter thresholds for Bangla-only mode
+        result = reader.readtext(
+            img,
+            detail=1,
+            paragraph=False,
+            text_threshold=0.80,  # Stricter
+            low_text=0.50,       # Stricter
+            link_threshold=0.50, # Stricter
+            min_size=20,         # Larger minimum size
+            canvas_size=2560,
+            mag_ratio=1.5,
+            rotation_info=None,
+            width_ths=0.75,      # Stricter
+            height_ths=0.75,     # Stricter
+            slope_ths=0.1,
+            allowlist=None,
+            blocklist=None
+        )
+    else:
+        result = reader.readtext(
+            img,
+            detail=1,
+            paragraph=False,
+            text_threshold=0.75,
+            low_text=0.45,
+            link_threshold=0.45,
+            min_size=15,
+            canvas_size=2560,
+            mag_ratio=1.5,
+            rotation_info=None,
+            width_ths=0.7,
+            height_ths=0.7,
+            slope_ths=0.1,
+            allowlist=None,
+            blocklist=None
+        )
 
     if not result:
         logger.warning("EasyOCR returned no detections")
@@ -173,7 +328,20 @@ def run_easyocr(img, langs, use_ocrmypdf=True):
 
         confidence = float(confidence)
 
-        if confidence < 0.5:
+        # Early filtering: for Bangla-only mode, reject English-only detections
+        if mode == "bangla":
+            has_bangla = bool(BANGLA_PATTERN.search(text_stripped))
+            has_english = bool(ENGLISH_PATTERN.search(text_stripped))
+            
+            # If it's pure English in Bangla-only mode, skip it entirely
+            if has_english and not has_bangla:
+                # Exception for pure numbers only
+                if not re.match(r'^\\d+[.,:]?$', text_stripped):
+                    continue
+
+        # Stricter confidence thresholds for Bangla-only mode
+        min_conf = 0.7 if mode == "bangla" else 0.5
+        if confidence < min_conf:
             continue
 
         if len(text_stripped) <= 2 and confidence < 0.7:
@@ -198,6 +366,16 @@ def run_easyocr(img, langs, use_ocrmypdf=True):
                 final_text += " " + text
     else:
         final_text = ""
+
+    # Filter hallucinated English based on mode
+    if mode == "bangla":
+        final_text = _filter_hallucinated_english(final_text, ["bn"])
+    elif mode == "english":
+        # No filtering for English-only mode
+        pass
+    elif mode == "mixed":
+        # Light filtering for mixed mode
+        final_text = _filter_hallucinated_english(final_text, langs)
 
     if confs:
         avg_conf = sum(confs) / len(confs)

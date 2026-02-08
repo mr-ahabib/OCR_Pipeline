@@ -7,6 +7,7 @@ import numpy as np
 
 from app.ocr.tesseract_engine import run_tesseract
 from app.ocr.google_docai_engine import run_docai
+from app.ocr.layout_engine import extract_layout_text
 from app.utils.pdf_utils import pdf_to_images
 from app.config import settings
 
@@ -34,7 +35,7 @@ MAX_CONVERSION_THREADS = int(os.getenv("OCR_MAX_CONVERSION_THREADS", 4))
 # Process single page - MAXIMUM ACCURACY
 # =====================================================
 
-def process_page(image, langs, raw_bytes):
+def process_page(image, langs, raw_bytes, mode="english"):
     """
     Process a single page with multiple extraction strategies
     Performs up to 3 passes if needed to achieve best results:
@@ -46,6 +47,7 @@ def process_page(image, langs, raw_bytes):
     - Mixed Bangla+English content
     - Multi-column layouts
     - Maximum accuracy
+    - Mode-based language filtering
     """
 
     # Convert PIL Image to numpy array if needed
@@ -57,9 +59,9 @@ def process_page(image, langs, raw_bytes):
     # -------------------------------------------------
     # PASS 1: OCRmyPDF + Tesseract (with multiple strategies)
     # -------------------------------------------------
-    logger.info(f"Pass 1: OCRmyPDF + Tesseract (langs: {langs})")
+    logger.info(f"Pass 1: OCRmyPDF + Tesseract (langs: {langs}, mode: {mode})")
     
-    text, conf = run_tesseract(img, langs, use_ocrmypdf=True)
+    text, conf = run_tesseract(img, langs, use_ocrmypdf=True, mode=mode)
     
     logger.info(f"Pass 1 confidence: {conf:.2f}%")
 
@@ -67,8 +69,8 @@ def process_page(image, langs, raw_bytes):
     # PASS 2: Try without OCRmyPDF if confidence is low
     # -------------------------------------------------
     if conf < 90:
-        logger.info("Pass 2: Raw Tesseract (no preprocessing)")
-        text2, conf2 = run_tesseract(img, langs, use_ocrmypdf=False)
+        logger.info(f"Pass 2: Raw Tesseract (no preprocessing, mode: {mode})")
+        text2, conf2 = run_tesseract(img, langs, use_ocrmypdf=False, mode=mode)
         logger.info(f"Pass 2 confidence: {conf2:.2f}%")
         
         # Use better result
@@ -96,13 +98,13 @@ def process_page(image, langs, raw_bytes):
 # Process file
 # =====================================================
 
-async def _process_single_page(idx, img, langs, raw_bytes, sem):
+async def _process_single_page(idx, img, langs, raw_bytes, sem, mode):
     async with sem:
-        logger.info(f"========== Page {idx} ==========")
-        return idx, await asyncio.to_thread(process_page, img, langs, raw_bytes)
+        logger.info(f"========== Page {idx} (Mode: {mode}) ==========")
+        return idx, await asyncio.to_thread(process_page, img, langs, raw_bytes, mode)
 
 
-async def process_file(file_bytes, langs):
+async def process_file(file_bytes, langs, preserve_layout: bool = False, mode: str = "english"):
     """
     Process file with multi-strategy OCR asynchronously:
     - Automatic column detection
@@ -110,7 +112,12 @@ async def process_file(file_bytes, langs):
     - Best result selection from all attempts
     - Support for mixed Bangla+English text
     - Parallel page processing for faster throughput
+    - Optional layout-preserving extraction (Detectron2 PubLayNet)
+    - Mode-based language handling (bangla/english/mixed)
     """
+
+    if preserve_layout:
+        return await _process_file_with_layout(file_bytes, langs, mode)
 
     try:
         images = await asyncio.to_thread(
@@ -128,7 +135,7 @@ async def process_file(file_bytes, langs):
 
     sem = asyncio.Semaphore(MAX_PARALLEL_PAGES)
     tasks = [
-        asyncio.create_task(_process_single_page(i, img, langs, file_bytes, sem))
+        asyncio.create_task(_process_single_page(i, img, langs, file_bytes, sem, mode))
         for i, img in enumerate(images, 1)
     ]
 
@@ -151,11 +158,69 @@ async def process_file(file_bytes, langs):
         "confidence": avg_conf,
         "pages": len(images),
         "languages": langs,
-        "engine": "Multi-strategy: OCRmyPDF + Tesseract (multi-pass)",
+        "mode": mode,
+        "engine": f"Multi-strategy: OCRmyPDF + Tesseract ({mode} mode)",
         "features": [
             "Multi-column detection",
             "Multiple PSM modes",
             "Image enhancement variants",
-            "Mixed language support"
+            f"Language filtering ({mode} mode)"
         ]
+    }
+
+
+async def _process_file_with_layout(file_bytes, langs, mode):
+    """Layout-preserving pipeline using PubLayNet + EasyOCR per block."""
+
+    try:
+        images = await asyncio.to_thread(
+            pdf_to_images,
+            file_bytes,
+            langs,
+            400,
+            MAX_CONVERSION_THREADS,
+        )
+        logger.info(f"PDF detected → {len(images)} pages (layout mode)")
+    except Exception:
+        single_image = await asyncio.to_thread(Image.open, io.BytesIO(file_bytes))
+        images = [single_image]
+        logger.info("Single image detected (layout mode)")
+
+    layout_pages = []
+    texts = []
+    confs = []
+
+    for idx, img in enumerate(images, 1):
+        logger.info(f"========== Layout Page {idx} (Mode: {mode}) ===========")
+        page_text, page_conf, blocks = await asyncio.to_thread(
+            extract_layout_text,
+            img,
+            langs,
+            mode,
+        )
+
+        texts.append(page_text)
+        confs.append(page_conf)
+        layout_pages.append({
+            "page": idx,
+            "confidence": page_conf,
+            "blocks": blocks,
+        })
+
+    avg_conf = sum(confs) / len(confs) if confs else 0
+
+    return {
+        "text": "\n\n".join(texts),
+        "confidence": avg_conf,
+        "pages": len(images),
+        "languages": langs,
+        "mode": mode,
+        "engine": f"Layout-aware: PubLayNet + EasyOCR ({mode} mode)",
+        "features": [
+            "PubLayNet layout detection",
+            "Reading-order block OCR",
+            "EasyOCR per block",
+            f"Language filtering ({mode} mode)",
+        ],
+        "layout": layout_pages,
     }

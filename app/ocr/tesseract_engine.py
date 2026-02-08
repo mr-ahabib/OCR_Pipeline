@@ -12,7 +12,7 @@ import io
 import re
 from concurrent.futures import ThreadPoolExecutor
 
-from app.ocr.easyocr_engine import get_reader, preprocess_with_ocrmypdf_easyocr, run_easyocr
+from app.ocr.easyocr_engine import get_reader, preprocess_with_ocrmypdf_easyocr, run_easyocr, _filter_hallucinated_english
 
 pytesseract.pytesseract.tesseract_cmd = settings.TESSERACT_CMD
 
@@ -83,7 +83,7 @@ TESSERACT_CONFIGS = {
 }
 
 
-EASYOCR_ENGLISH_CONF_THRESHOLD = 40.0  # EasyOCR confidence is 0-100 after scaling
+EASYOCR_ENGLISH_CONF_THRESHOLD = 75.0  # EasyOCR confidence is 0-100 after scaling - even stricter threshold
 
 EASYOCR_PARAMS = {
     "detail": 1,
@@ -309,6 +309,7 @@ def _apply_easyocr_ensemble(text, langs, easyocr_info):
     """
     Blend Tesseract output with EasyOCR signals to suppress hallucinated English
     inside Bangla pages while keeping real English when confirmed.
+    AGGRESSIVE filtering for Bangla-only mode.
     """
 
     if not text or not easyocr_info:
@@ -316,6 +317,10 @@ def _apply_easyocr_ensemble(text, langs, easyocr_info):
 
     if "bn" not in langs:
         return text
+
+    # If English is not in requested languages at all, aggressively filter
+    if "en" not in langs:
+        return _filter_hallucinated_english(text, langs)
 
     if not re.search(r"[A-Za-z]", text):
         return text
@@ -329,10 +334,11 @@ def _apply_easyocr_ensemble(text, langs, easyocr_info):
         and easyocr_info.get("english_conf", 0.0) >= EASYOCR_ENGLISH_CONF_THRESHOLD
     )
 
-    # If EasyOCR cannot confirm English and only a small fraction is English, strip it out
+    # In mixed Bangla+English mode, be more conservative about English
     if not english_confirmed and total_tokens > 0:
         english_ratio = english_token_count / total_tokens
-        if english_ratio <= 0.5:
+        # Stricter threshold - remove English if it's less than 30% of content
+        if english_ratio <= 0.3:
             return _strip_english_tokens(text)
 
     # When English is confirmed, prefer EasyOCR's tokens over Tesseract's English guesses
@@ -434,18 +440,32 @@ def preprocess_with_ocrmypdf(img, langs):
             return np.array(img_pil)
 
 
-def fix_common_ocr_errors(text, langs):
+def fix_common_ocr_errors(text, langs, mode="english"):
     """
     Fix common OCR errors without breaking compound words
-    Minimal postprocessing for specific issues only
+    Also applies mode-based hallucination filtering
     """
     if not text:
         return text
     
+    # Apply hallucination filtering based on mode
+    if mode == "bangla":
+        # Bangla-only mode: aggressive English filtering
+        text = _filter_hallucinated_english(text, ["bn"])
+    elif mode == "english":
+        # English-only mode: no filtering needed
+        pass
+    elif mode == "mixed":
+        # Mixed mode: minimal filtering, preserve both languages
+        # Only filter if we're sure it's hallucination
+        pass
+    
+    return text.strip()
+    
     return text.strip()
 
 
-def run_tesseract(img, langs, use_ocrmypdf=True):
+def run_tesseract(img, langs, use_ocrmypdf=True, mode="english"):
 
     # Upsample low-res pages for Bangla to improve stroke clarity
     img = _maybe_upsample_for_bengali(img, langs)
@@ -546,16 +566,21 @@ def run_tesseract(img, langs, use_ocrmypdf=True):
         logger.info(f"Text preview: {best_text[:200]}..." if len(best_text) > 200 else f"Full text: {best_text}")
         
         # Validate English presence in Bangla pages using EasyOCR to avoid hallucinated mix
-        if best_text:
+        if best_text and mode in ["bangla", "mixed"]:
             easyocr_info = _detect_english_with_easyocr(img, langs, use_ocrmypdf=False)
-            best_text = _apply_easyocr_ensemble(best_text, langs, easyocr_info)
+            if mode == "bangla":
+                # Bangla-only: aggressive filtering
+                best_text = _apply_easyocr_ensemble(best_text, ["bn"], easyocr_info)
+            elif mode == "mixed":
+                # Mixed mode: balanced filtering
+                best_text = _apply_easyocr_ensemble(best_text, langs, easyocr_info)
 
         # Bangla accuracy ensemble: compare with EasyOCR full pass and pick stronger signal
-        if 'bn' in langs:
+        if 'bn' in langs and mode in ["bangla", "mixed"]:
             try:
                 if easy_text is None:
-                    logger.info(f"Running EasyOCR ensemble for Bangla...")
-                    easy_text, easy_conf = run_easyocr(img, langs, use_ocrmypdf=True)
+                    logger.info(f"Running EasyOCR ensemble for Bangla (mode: {mode})...")
+                    easy_text, easy_conf = run_easyocr(img, langs, use_ocrmypdf=True, mode=mode)
                 logger.info(f"EasyOCR result: {len(easy_text) if easy_text else 0} chars, conf={easy_conf:.2f}%")
                 if easy_text:
                     logger.info(f"EasyOCR preview: {easy_text[:200]}..." if len(easy_text) > 200 else f"EasyOCR full: {easy_text}")
@@ -580,8 +605,8 @@ def run_tesseract(img, langs, use_ocrmypdf=True):
                 logger.error(f"EasyOCR ensemble failed: {str(e)}")
                 pass
 
-        # Apply minimal targeted fixes (no language filtering)
-        best_text = fix_common_ocr_errors(best_text, langs)
+        # Apply minimal targeted fixes (mode-aware filtering)
+        best_text = fix_common_ocr_errors(best_text, langs, mode)
         
         logger.info(f"Final result: {len(best_text)} chars, conf={best_conf:.2f}%")
         logger.info(f"Final preview: {best_text[:200]}..." if len(best_text) > 200 else f"Final text: {best_text}")
