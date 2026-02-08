@@ -12,6 +12,6 @@ async def ocr(
 
     content = await file.read()
 
-    result = process_file(content, langs)
+    result = await process_file(content, langs)
 
     return result

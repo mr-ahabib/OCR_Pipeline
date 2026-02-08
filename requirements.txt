@@ -50,3 +50,4 @@ python-dotenv==1.0.1
 pdf2image==1.17.0
 textblob==0.18.0
 rapidfuzz==3.10.0
+ocrmypdf==16.9.0
