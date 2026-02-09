@@ -1,33 +1,40 @@
-from fastapi import FastAPI, UploadFile, File, Form
-from app.service import process_file
-from typing import Literal
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+import logging
+from app.utils.logger import setup_file_logging
+from endpoints.ocr_endpoints import router as ocr_router
 
-app = FastAPI(title="Robust OCR Engine")
+# Initialize structured file logging for important events only
+setup_file_logging(logging.INFO)  # Console shows INFO+, file shows WARNING+
+logger = logging.getLogger(__name__)
 
-# Define OCR modes
-OCR_MODES = {
-    "bangla": ["bn"],
-    "english": ["en"],
-    "mixed": ["bn", "en"]
-}
+app = FastAPI(
+    title="Robust OCR Engine",
+    description="Advanced OCR system with multiple output formats and language support",
+    version="2.0.0",
+    docs_url="/docs",
+    redoc_url="/redoc"
+)
 
-@app.post("/ocr")
-async def ocr(
-    file: UploadFile = File(...),
-    mode: Literal["bangla", "english", "mixed"] = Form("english"),
-    preserve_layout: bool = Form(False),
-):
-    """OCR endpoint with simplified mode selection.
-    
-    Modes:
-    - bangla: Bangla-only OCR (filters out English hallucinations)
-    - english: English-only OCR
-    - mixed: Mixed Bangla+English OCR (preserves both languages)
-    """
-    langs = OCR_MODES.get(mode, ["en"])
+# Add CORS middleware for web requests
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-    content = await file.read()
+# Include OCR endpoints router
+app.include_router(ocr_router, tags=["OCR"])
 
-    result = await process_file(content, langs, preserve_layout=preserve_layout, mode=mode)
+@app.on_event("startup")
+async def startup_event():
+    """Log application startup"""
+    logger.warning("FastAPI OCR Engine STARTED - Multiple output formats available")
 
-    return result
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Log application shutdown"""
+    logger.warning("FastAPI OCR Engine SHUTDOWN")
+

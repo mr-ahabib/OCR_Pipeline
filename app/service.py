@@ -2,26 +2,57 @@ import asyncio
 import logging
 import io
 import os
+import time
 from PIL import Image
 import numpy as np
 
 from app.ocr.tesseract_engine import run_tesseract
 from app.ocr.google_docai_engine import run_docai
-from app.ocr.layout_engine import extract_layout_text
 from app.utils.pdf_utils import pdf_to_images
+from app.utils.logger import setup_file_logging, log_ocr_operation, log_performance_metrics
 from app.config import settings
 
 
 # =====================================================
-# Logging
+# File Type Detection
 # =====================================================
 
-logger = logging.getLogger(__name__)
+def detect_file_type(file_bytes: bytes) -> str:
+    """
+    Detect file type based on file signature/magic bytes
+    Returns: 'pdf', 'image', or 'unknown'
+    """
+    if len(file_bytes) < 10:
+        return 'unknown'
+    
+    # PDF signature
+    if file_bytes.startswith(b'%PDF'):
+        return 'pdf'
+    
+    # Common image signatures
+    if file_bytes.startswith(b'\xff\xd8\xff'):  # JPEG
+        return 'image'
+    if file_bytes.startswith(b'\x89PNG'):  # PNG
+        return 'image'  
+    if file_bytes.startswith(b'GIF87a') or file_bytes.startswith(b'GIF89a'):  # GIF
+        return 'image'
+    if file_bytes.startswith(b'BM'):  # BMP
+        return 'image'
+    if file_bytes.startswith(b'RIFF') and b'WEBP' in file_bytes[:12]:  # WebP
+        return 'image'
+    if file_bytes.startswith(b'II*\x00') or file_bytes.startswith(b'MM\x00*'):  # TIFF
+        return 'image'
+    
+    return 'unknown'
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s | %(levelname)s | %(message)s"
-)
+
+# =====================================================
+# Logging Setup
+# =====================================================
+
+# Initialize structured file logging for important events only
+setup_file_logging(logging.INFO)  # Console shows INFO+, file shows WARNING+ 
+logger = logging.getLogger(__name__)
 
 
 # =====================================================
@@ -59,37 +90,35 @@ def process_page(image, langs, raw_bytes, mode="english"):
     # -------------------------------------------------
     # PASS 1: OCRmyPDF + Tesseract (with multiple strategies)
     # -------------------------------------------------
-    logger.info(f"Pass 1: OCRmyPDF + Tesseract (langs: {langs}, mode: {mode})")
     
     text, conf = run_tesseract(img, langs, use_ocrmypdf=True, mode=mode)
-    
-    logger.info(f"Pass 1 confidence: {conf:.2f}%")
 
     # -------------------------------------------------
     # PASS 2: Try without OCRmyPDF if confidence is low
     # -------------------------------------------------
     if conf < 90:
-        logger.info(f"Pass 2: Raw Tesseract (no preprocessing, mode: {mode})")
+        logger.warning(f"LOW confidence Pass 1 ({conf:.2f}%) - trying raw Tesseract")
         text2, conf2 = run_tesseract(img, langs, use_ocrmypdf=False, mode=mode)
-        logger.info(f"Pass 2 confidence: {conf2:.2f}%")
         
         # Use better result
         if conf2 > conf:
             text, conf = text2, conf2
-            logger.info("Using Pass 2 result")
 
     # -------------------------------------------------
     # PASS 3: DocAI fallback for very low confidence
     # -------------------------------------------------
     if conf < settings.CONFIDENCE_THRESHOLD:
-        logger.warning(f"⚠️ Low confidence ({conf:.2f}%) → Pass 3: DocAI fallback")
+        logger.warning(f"CRITICAL: Very low confidence ({conf:.2f}%) - using DocAI fallback")
         try:
             docai_text = run_docai(raw_bytes)
-            logger.info("✅ DocAI used")
+            logger.warning("DocAI fallback completed successfully")
             return docai_text, 100.0
         except Exception as ex:
-            logger.error(f"DocAI failed: {str(ex)}")
-            logger.info("Returning best Tesseract result")
+            logger.error(f"DocAI FAILED: {str(ex)}")
+    
+    # Log final low confidence results
+    if conf < 70:
+        logger.warning(f"FINAL RESULT has low confidence: {conf:.2f}%")
     
     return text, conf
 
@@ -100,127 +129,173 @@ def process_page(image, langs, raw_bytes, mode="english"):
 
 async def _process_single_page(idx, img, langs, raw_bytes, sem, mode):
     async with sem:
-        logger.info(f"========== Page {idx} (Mode: {mode}) ==========")
-        return idx, await asyncio.to_thread(process_page, img, langs, raw_bytes, mode)
+        # Only log page processing for large documents
+        if idx == 1:  # Log once for first page only
+            return idx, await asyncio.to_thread(process_page, img, langs, raw_bytes, mode)
+        else:
+            return idx, await asyncio.to_thread(process_page, img, langs, raw_bytes, mode)
 
 
-async def process_file(file_bytes, langs, preserve_layout: bool = False, mode: str = "english"):
+async def process_file(file_bytes, langs, mode: str = "english"):
     """
     Process file with multi-strategy OCR asynchronously:
+    - Automatic file type detection (PDF vs Image)
     - Automatic column detection
     - Multiple extraction passes per page
     - Best result selection from all attempts
     - Support for mixed Bangla+English text
     - Parallel page processing for faster throughput
-    - Optional layout-preserving extraction (Detectron2 PubLayNet)
     - Mode-based language handling (bangla/english/mixed)
     """
-
-    if preserve_layout:
-        return await _process_file_with_layout(file_bytes, langs, mode)
-
+    start_time = time.time()
+    file_size = len(file_bytes)
+    
     try:
-        images = await asyncio.to_thread(
-            pdf_to_images,
-            file_bytes,
-            langs,
-            600,
-            MAX_CONVERSION_THREADS,
-        )
-        logger.info(f"PDF detected → {len(images)} pages")
-    except Exception:
-        single_image = await asyncio.to_thread(Image.open, io.BytesIO(file_bytes))
-        images = [single_image]
-        logger.info("Single image detected")
+        # Detect file type first to avoid unnecessary PDF conversion attempts
+        file_type = detect_file_type(file_bytes)
+        
+        # Only log large files or potential issues
+        if file_size > 10 * 1024 * 1024:  # Only log files larger than 10MB
+            logger.warning(f"LARGE FILE Processing - Type: {file_type} - Mode: {mode} - Languages: {langs} - File size: {file_size//1024}KB")
+        
+        # Process based on detected file type
+        if file_type == 'pdf':
+            try:
+                images = await asyncio.to_thread(
+                    pdf_to_images,
+                    file_bytes,
+                    langs,
+                    600,
+                    MAX_CONVERSION_THREADS,
+                )
+                file_info = f"PDF ({len(images)} pages, {file_size//1024}KB)"
+                # Only log if many pages
+                if len(images) > 10:
+                    logger.warning(f"LARGE PDF detected → {len(images)} pages")
+            except Exception as e:
+                logger.error(f"PDF processing failed: {str(e)}")
+                # Try as image if PDF processing fails
+                single_image = await asyncio.to_thread(Image.open, io.BytesIO(file_bytes))
+                images = [single_image]
+                file_info = f"PDF-fallback-Image (1 page, {file_size//1024}KB)"
+                
+        elif file_type == 'image':
+            # Process directly as image - no PDF conversion attempt
+            single_image = await asyncio.to_thread(Image.open, io.BytesIO(file_bytes))
+            images = [single_image]
+            file_info = f"Image (1 page, {file_size//1024}KB)"
+            
+        else:
+            # Unknown file type - try both approaches
+            logger.warning(f"Unknown file type detected - attempting processing")
+            try:
+                # Try PDF first
+                images = await asyncio.to_thread(
+                    pdf_to_images,
+                    file_bytes,
+                    langs,
+                    600,
+                    MAX_CONVERSION_THREADS,
+                )
+                file_info = f"Unknown-PDF ({len(images)} pages, {file_size//1024}KB)"
+            except Exception:
+                # Fall back to image
+                try:
+                    single_image = await asyncio.to_thread(Image.open, io.BytesIO(file_bytes))
+                    images = [single_image]
+                    file_info = f"Unknown-Image (1 page, {file_size//1024}KB)"
+                except Exception as e:
+                    logger.error(f"Unable to process file as PDF or Image: {str(e)}")
+                    raise ValueError("Unsupported file format")
 
-    sem = asyncio.Semaphore(MAX_PARALLEL_PAGES)
-    tasks = [
-        asyncio.create_task(_process_single_page(i, img, langs, file_bytes, sem, mode))
-        for i, img in enumerate(images, 1)
-    ]
-
-    results = await asyncio.gather(*tasks)
-
-    # Maintain order by page index
-    results_sorted = sorted(results, key=lambda x: x[0])
-    texts = []
-    confs = []
-
-    for _, (page_text, page_conf) in results_sorted:
-        texts.append(page_text)
-        confs.append(page_conf)
-
-    avg_conf = sum(confs) / len(confs) if confs else 0
-    logger.info(f"Overall average confidence: {avg_conf:.2f}%")
-
-    return {
-        "text": "\n\n".join(texts),
-        "confidence": avg_conf,
-        "pages": len(images),
-        "languages": langs,
-        "mode": mode,
-        "engine": f"Multi-strategy: OCRmyPDF + Tesseract ({mode} mode)",
-        "features": [
-            "Multi-column detection",
-            "Multiple PSM modes",
-            "Image enhancement variants",
-            f"Language filtering ({mode} mode)"
+        sem = asyncio.Semaphore(MAX_PARALLEL_PAGES)
+        tasks = [
+            asyncio.create_task(_process_single_page(i, img, langs, file_bytes, sem, mode))
+            for i, img in enumerate(images, 1)
         ]
-    }
+
+        results = await asyncio.gather(*tasks)
+
+        # Maintain order by page index
+        results_sorted = sorted(results, key=lambda x: x[0])
+        texts = []
+        confs = []
+
+        for _, (page_text, page_conf) in results_sorted:
+            texts.append(page_text)
+            confs.append(page_conf)
+
+        avg_conf = sum(confs) / len(confs) if confs else 0
+        processing_time = time.time() - start_time
+        
+        # Only log if confidence is concerning or processing was slow
+        if avg_conf < 80:
+            logger.warning(f"LOW CONFIDENCE result: {avg_conf:.2f}%")
+        if processing_time > (5.0 if len(images) == 1 else 10.0):
+            logger.warning(f"SLOW PROCESSING: {processing_time:.2f} seconds for {len(images)} pages")
+
+        # Build response based on number of pages
+        if len(images) == 1:
+            # Single page - return text directly
+            result = {
+                "text": texts[0] if texts else "",
+                "confidence": avg_conf,
+                "pages": len(images),
+                "languages": langs,
+                "mode": mode,
+                "engine": f"Multi-strategy: OCRmyPDF + Tesseract ({mode} mode)",
+                "features": [
+                    "Multi-column detection",
+                    "Multiple PSM modes",
+                    "Image enhancement variants",
+                    f"Language filtering ({mode} mode)"
+                ]
+            }
+        else:
+            # Multi-page PDF - return page-by-page results
+            pages_data = []
+            for i, (text, conf) in enumerate(zip(texts, confs), 1):
+                pages_data.append({
+                    "page_number": i,
+                    "text": text,
+                    "confidence": conf,
+                    "character_count": len(text)
+                })
+            
+            result = {
+                "text": "\n\n".join(texts),  # Combined text for compatibility
+                "pages_data": pages_data,  # Individual page results
+                "confidence": avg_conf,
+                "pages": len(images),
+                "languages": langs,
+                "mode": mode,
+                "engine": f"Multi-strategy: OCRmyPDF + Tesseract ({mode} mode)",
+                "features": [
+                    "Multi-column detection",
+                    "Multiple PSM modes", 
+                    "Image enhancement variants",
+                    f"Language filtering ({mode} mode)",
+                    "Page-by-page OCR results"
+                ]
+            }
+        
+        # Log successful OCR operation
+        log_ocr_operation("COMPLETE", file_info, result)
+        log_performance_metrics("OCR_PROCESSING", processing_time, len(images), file_size)
+        
+        return result
+        
+    except Exception as e:
+        processing_time = time.time() - start_time
+        error_msg = f"OCR processing failed: {str(e)}"
+        logger.error(error_msg)
+        
+        # Log failed OCR operation
+        log_ocr_operation("FAILED", f"File ({file_size//1024}KB)", error=error_msg)
+        log_performance_metrics("OCR_FAILED", processing_time, 0, file_size)
+        
+        # Re-raise the exception to be handled by the API
+        raise
 
 
-async def _process_file_with_layout(file_bytes, langs, mode):
-    """Layout-preserving pipeline using PubLayNet + EasyOCR per block."""
 
-    try:
-        images = await asyncio.to_thread(
-            pdf_to_images,
-            file_bytes,
-            langs,
-            400,
-            MAX_CONVERSION_THREADS,
-        )
-        logger.info(f"PDF detected → {len(images)} pages (layout mode)")
-    except Exception:
-        single_image = await asyncio.to_thread(Image.open, io.BytesIO(file_bytes))
-        images = [single_image]
-        logger.info("Single image detected (layout mode)")
-
-    layout_pages = []
-    texts = []
-    confs = []
-
-    for idx, img in enumerate(images, 1):
-        logger.info(f"========== Layout Page {idx} (Mode: {mode}) ===========")
-        page_text, page_conf, blocks = await asyncio.to_thread(
-            extract_layout_text,
-            img,
-            langs,
-            mode,
-        )
-
-        texts.append(page_text)
-        confs.append(page_conf)
-        layout_pages.append({
-            "page": idx,
-            "confidence": page_conf,
-            "blocks": blocks,
-        })
-
-    avg_conf = sum(confs) / len(confs) if confs else 0
-
-    return {
-        "text": "\n\n".join(texts),
-        "confidence": avg_conf,
-        "pages": len(images),
-        "languages": langs,
-        "mode": mode,
-        "engine": f"Layout-aware: PubLayNet + EasyOCR ({mode} mode)",
-        "features": [
-            "PubLayNet layout detection",
-            "Reading-order block OCR",
-            "EasyOCR per block",
-            f"Language filtering ({mode} mode)",
-        ],
-        "layout": layout_pages,
-    }
