@@ -99,7 +99,7 @@ def setup_file_logging(log_level=logging.WARNING):
     """Set up structured file logging for important events only"""
     
     # Create logs directory if it doesn't exist
-    log_dir = Path(__file__).parent.parent.parent / "logs"
+    log_dir = Path(__file__).parent.parent / "logs"
     log_dir.mkdir(exist_ok=True)
     
     log_file_path = log_dir / "logs.txt"
