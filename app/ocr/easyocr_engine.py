@@ -3,6 +3,7 @@ import numpy as np
 import ocrmypdf
 import tempfile
 import re
+import os
 from pathlib import Path
 from PIL import Image
 import cv2
@@ -23,7 +24,7 @@ ENGLISH_PATTERN = re.compile(r'[A-Za-z]')
 ARABIC_PATTERN = re.compile(r'[\u0600-\u06FF]')
 
 
-def _resize_for_ocr(img, target_max_dim=2500):
+def _resize_for_ocr(img, target_max_dim=3000):  # Increased from 2500 for better Bangla text capture
     try:
         if isinstance(img, Image.Image):
             w, h = img.size
@@ -48,8 +49,11 @@ def _resize_for_ocr(img, target_max_dim=2500):
 
 def preprocess_with_ocrmypdf_easyocr(img, langs):
     """Preprocess with ocrmypdf to improve EasyOCR quality."""
+    # Get oversample DPI from environment or use default
+    oversample_dpi = int(os.getenv("OCRMYPDF_OVERSAMPLE_DPI", 600))
+    
     # Resize large images first to prevent memory issues
-    img = _resize_for_ocr(img, target_max_dim=2500)
+    img = _resize_for_ocr(img, target_max_dim=3000)  # Increased from 2500
     
     with tempfile.TemporaryDirectory() as tmpdir:
         input_img_path = Path(tmpdir) / "input.png"
@@ -66,7 +70,8 @@ def preprocess_with_ocrmypdf_easyocr(img, langs):
             # Assume it's already a PIL Image or compatible
             img_pil = img
 
-        img_pil.save(input_img_path)
+        # Save with maximum quality
+        img_pil.save(input_img_path, compress_level=0)
 
         try:
             lang_codes = [LANG_MAP.get(l, l) for l in langs if l in SUPPORTED]
@@ -86,7 +91,7 @@ def preprocess_with_ocrmypdf_easyocr(img, langs):
                 jpeg_quality=95,
                 png_quality=95,
                 jbig2_lossy=False,
-                oversample=400,
+                oversample=oversample_dpi,  # Use configured DPI
                 remove_vectors=False,
                 output_type='pdf',
                 redo_ocr=True,
@@ -101,7 +106,7 @@ def preprocess_with_ocrmypdf_easyocr(img, langs):
             )
 
             from pdf2image import convert_from_path
-            images = convert_from_path(str(output_pdf_path), dpi=400)
+            images = convert_from_path(str(output_pdf_path), dpi=oversample_dpi)  # Use same DPI
 
             if images:
                 return np.array(images[0])
@@ -267,22 +272,23 @@ def run_easyocr(img, langs, use_ocrmypdf=True, mode="english"):
     logger.info(f"Running EasyOCR with languages: {langs}")
 
     # Adjust thresholds for Bangla-only mode to reduce English hallucinations
+    # but also ensure we capture all Bangla text
     if mode == "bangla":
-        # Stricter thresholds for Bangla-only mode
+        # Balanced thresholds for Bangla-only mode - optimized for speed
         result = reader.readtext(
             img,
             detail=1,
             paragraph=False,
-            text_threshold=0.80,  # Stricter
-            low_text=0.50,       # Stricter
-            link_threshold=0.50, # Stricter
-            min_size=20,         # Larger minimum size
-            canvas_size=2560,
-            mag_ratio=1.5,
+            text_threshold=0.70,  # Slightly more lenient to catch all Bangla text
+            low_text=0.40,       # More lenient to catch faint text
+            link_threshold=0.40, # More lenient for text linking
+            min_size=10,         # Smaller minimum size to catch small text
+            canvas_size=2560,    # Reduced from 3000 for faster processing
+            mag_ratio=1.5,       # Reduced from 1.8 for faster processing
             rotation_info=None,
-            width_ths=0.75,      # Stricter
-            height_ths=0.75,     # Stricter
-            slope_ths=0.1,
+            width_ths=0.65,      # More lenient
+            height_ths=0.65,     # More lenient
+            slope_ths=0.15,      # More lenient for slanted text
             allowlist=None,
             blocklist=None
         )
@@ -311,14 +317,16 @@ def run_easyocr(img, langs, use_ocrmypdf=True, mode="english"):
     
     logger.info(f"EasyOCR raw detections: {len(result)} items")
 
-    texts = []
-    confs = []
+    # Collect all word boxes with their positions for layout preservation
+    word_boxes = []
+    all_confs = []
 
     for detection in result:
         if len(detection) == 3:
-            _, text, confidence = detection
+            bbox, text, confidence = detection
         elif len(detection) == 2:
             text, confidence = detection
+            bbox = None
         else:
             continue
 
@@ -336,34 +344,27 @@ def run_easyocr(img, langs, use_ocrmypdf=True, mode="english"):
             # If it's pure English in Bangla-only mode, skip it entirely
             if has_english and not has_bangla:
                 # Exception for pure numbers only
-                if not re.match(r'^\\d+[.,:]?$', text_stripped):
+                if not re.match(r'^\d+[.,:]?$', text_stripped):
+                    logger.debug(f"Skipping pure English detection in Bangla mode: '{text_stripped}'")
                     continue
 
-        # Stricter confidence thresholds for Bangla-only mode
-        min_conf = 0.7 if mode == "bangla" else 0.5
+        # More lenient confidence thresholds to capture all text
+        min_conf = 0.40 if mode == "bangla" else 0.45  # Lower threshold for Bangla
         if confidence < min_conf:
             continue
 
-        if len(text_stripped) <= 2 and confidence < 0.7:
+        if len(text_stripped) <= 2 and confidence < 0.60:  # More lenient for short text
             continue
 
-        if text_stripped in '.,;:!?-()[]{}"\'' and confidence < 0.7:
+        if text_stripped in '.,;:!?-()[]{}"\'' and confidence < 0.65:  # More lenient for punctuation
             continue
 
-        texts.append(text_stripped)
-        confs.append(confidence * 100)
+        all_confs.append(confidence * 100)
+        word_boxes.append(text_stripped)
 
-    if texts:
-        final_text = ""
-        for i, text in enumerate(texts):
-            if i == 0:
-                final_text = text
-            elif text in '.,;:!?)]}\'"':
-                final_text += text
-            elif final_text and final_text[-1] in '([{\'"':
-                final_text += text
-            else:
-                final_text += " " + text
+    # Build simple text output - let EasyOCR's natural ordering handle layout
+    if word_boxes:
+        final_text = ' '.join(word_boxes)
     else:
         final_text = ""
 
@@ -377,8 +378,8 @@ def run_easyocr(img, langs, use_ocrmypdf=True, mode="english"):
         # Light filtering for mixed mode
         final_text = _filter_hallucinated_english(final_text, langs)
 
-    if confs:
-        avg_conf = sum(confs) / len(confs)
+    if all_confs:
+        avg_conf = sum(all_confs) / len(all_confs)
     else:
         avg_conf = 0.0
 

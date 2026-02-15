@@ -66,20 +66,22 @@ DEFAULT_WORKERS = max(2, min(8, (os.cpu_count() or 4)))
 OCR_ENGINE_MAX_WORKERS = int(os.getenv("OCR_ENGINE_MAX_WORKERS", DEFAULT_WORKERS))
 
 TESSERACT_CONFIGS = {
-    # Bengali configurations - allow natural English mixing
-    "bengali_single": "--oem 1 --psm 6 -c preserve_interword_spaces=1 -c tessedit_preserve_min_wd_len=1",
-    "bengali_multi": "--oem 1 --psm 1 -c preserve_interword_spaces=1 -c tessedit_preserve_min_wd_len=1",
-    "bengali_auto": "--oem 1 --psm 3 -c preserve_interword_spaces=1 -c tessedit_preserve_min_wd_len=1",
+    # Bengali configurations - Use OEM 3 (legacy + LSTM) for best Bangla accuracy
+    # OEM 3 combines both engines for better Unicode script support
+    "bengali_single": "--oem 3 --psm 6 -c preserve_interword_spaces=1 -c tessedit_preserve_min_wd_len=1 -c textord_heavy_nr=1",
+    "bengali_multi": "--oem 3 --psm 1 -c preserve_interword_spaces=1 -c tessedit_preserve_min_wd_len=1 -c textord_heavy_nr=1",
+    "bengali_auto": "--oem 3 --psm 3 -c preserve_interword_spaces=1 -c tessedit_preserve_min_wd_len=1 -c textord_heavy_nr=1",
+    "bengali_script": "--oem 3 --psm 6 -c preserve_interword_spaces=1 -c tessedit_preserve_min_wd_len=1 -c textord_heavy_nr=1 -c tessedit_char_whitelist= ",
     
-    # English configurations
+    # English configurations - OEM 1 (LSTM) is fine for English
     "english_single": "--oem 1 --psm 6 -c preserve_interword_spaces=1 -c tessedit_preserve_min_wd_len=1",
     "english_multi": "--oem 1 --psm 1 -c preserve_interword_spaces=1 -c tessedit_preserve_min_wd_len=1",
     "english_auto": "--oem 1 --psm 3 -c preserve_interword_spaces=1 -c tessedit_preserve_min_wd_len=1",
     
-    # Mixed language configurations
-    "mixed_single": "--oem 1 --psm 6 -c preserve_interword_spaces=1",
-    "mixed_multi": "--oem 1 --psm 1 -c preserve_interword_spaces=1",
-    "mixed_auto": "--oem 1 --psm 3 -c preserve_interword_spaces=1",
+    # Mixed language configurations - OEM 3 for better multi-script support
+    "mixed_single": "--oem 3 --psm 6 -c preserve_interword_spaces=1",
+    "mixed_multi": "--oem 3 --psm 1 -c preserve_interword_spaces=1",
+    "mixed_auto": "--oem 3 --psm 3 -c preserve_interword_spaces=1",
 }
 
 
@@ -102,9 +104,147 @@ EASYOCR_PARAMS = {
     "blocklist": None,
 }
 
+def _extract_text_with_layout(img, lang_string, config):
+    """
+    Extract text while preserving layout structure (line breaks, spacing, etc.)
+    Uses bounding boxes to reconstruct the original layout with proper reading order.
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    try:
+        data = pytesseract.image_to_data(
+            img,
+            lang=lang_string,
+            config=config,
+            output_type=Output.DICT
+        )
+        
+        # Collect all word boxes with their positions
+        word_boxes = []
+        confs = []
+        
+        n_boxes = len(data['text'])
+        logger.info(f"Processing {n_boxes} total boxes from Tesseract")
+        
+        for i in range(n_boxes):
+            conf = int(data['conf'][i])
+            text = data['text'][i].strip()
+            
+            if conf > 0 and text:
+                confs.append(conf)
+                top = data['top'][i]
+                left = data['left'][i]
+                width = data['width'][i]
+                height = data['height'][i]
+                
+                word_boxes.append({
+                    'text': text,
+                    'top': top,
+                    'left': left,
+                    'right': left + width,
+                    'bottom': top + height,
+                    'center_y': top + height // 2,
+                    'center_x': left + width // 2
+                })
+        
+        logger.info(f"Found {len(word_boxes)} valid words to process")
+        
+        if not word_boxes:
+            logger.warning("No word boxes found, returning empty")
+            return "", 0
+        
+        # Sort all words by vertical position first (top to bottom), then horizontal (left to right)
+        word_boxes.sort(key=lambda x: (x['top'], x['left']))
+        logger.info(f"Sorted {len(word_boxes)} words by position")
+        
+        # Group words into lines - simple approach: group by similar Y positions
+        # This is more reliable than complex overlap detection
+        lines = []
+        current_line = [word_boxes[0]]
+        line_reference_top = word_boxes[0]['top']  # Reference Y position for this line
+        line_max_height = word_boxes[0]['bottom'] - word_boxes[0]['top']
+        
+        for word in word_boxes[1:]:
+            word_height = word['bottom'] - word['top']
+            
+            # Check if this word is on the same line as current_line
+            # Use the reference (first word's) top position, not min of all words
+            max_height = max(line_max_height, word_height)
+            tolerance = max(5, max_height * 0.25)  # 25% of max height in line
+            
+            if abs(word['top'] - line_reference_top) <= tolerance:
+                # Same line - add word
+                current_line.append(word)
+                line_max_height = max(line_max_height, word_height)
+            else:
+                # New line - save current and start new
+                lines.append(current_line)
+                current_line = [word]
+                line_reference_top = word['top']
+                line_max_height = word_height
+        
+        # Don't forget the last line
+        if current_line:
+            lines.append(current_line)
+        
+        logger.info(f"Grouped words into {len(lines)} lines")
+        
+        # Build text with layout preservation
+        result_lines = []
+        prev_line_bottom = None
+        
+        for line_idx, line_words in enumerate(lines):
+            # Sort words in line by horizontal position (left to right)
+            line_words.sort(key=lambda x: x['left'])
+            
+            # Calculate line metrics
+            line_top = min(w['top'] for w in line_words)
+            line_bottom = max(w['bottom'] for w in line_words)
+            line_height = line_bottom - line_top
+            
+            # Check for paragraph break (larger vertical gap)
+            if prev_line_bottom is not None:
+                gap = line_top - prev_line_bottom
+                # Paragraph break if gap is more than 1.5x line height
+                if gap > line_height * 1.5:
+                    result_lines.append('')  # Empty line for paragraph break
+                    logger.debug(f"Paragraph break detected (gap={gap:.1f}, height={line_height:.1f})")
+            
+            # Join words with spaces, handling punctuation
+            line_text = ''
+            for i, word in enumerate(line_words):
+                if i == 0:
+                    line_text = word['text']
+                else:
+                    # Check if punctuation that should attach to previous word
+                    if word['text'][0] in '.,;:!?)]}\'"':
+                        line_text += word['text']
+                    # Check if opening punctuation that next word should attach to
+                    elif line_text and line_text[-1] in '([{\'"':
+                        line_text += word['text']
+                    else:
+                        line_text += ' ' + word['text']
+            
+            result_lines.append(line_text)
+            logger.debug(f"Line {line_idx + 1}: {len(line_words)} words, text length={len(line_text)}")
+            prev_line_bottom = line_bottom
+        
+        text = '\n'.join(result_lines)
+        conf = sum(confs) / len(confs) if confs else 0
+        
+        logger.info(f"Layout extraction complete: {len(text)} chars, {len(result_lines)} lines, conf={conf:.2f}%")
+        
+        return text, conf
+        
+    except Exception as e:
+        logger.error(f"Layout extraction failed: {str(e)}", exc_info=True)
+        return "", 0.0
+
+
 def _run(img, lang_string, config_override=None):
     """
-  Tesseract with optimal configuration
+    Tesseract with optimal configuration
     
     PSM modes:
     - PSM 3: Fully automatic page segmentation (best for mixed content)
@@ -114,17 +254,18 @@ def _run(img, lang_string, config_override=None):
     - PSM 12: Sparse text with OSD
     
     OEM modes:
-    - OEM 1: LSTM neural nets only (BEST for accuracy)
-    - OEM 3: Default (both legacy + LSTM)
+    - OEM 1: LSTM neural nets only (BEST for English)
+    - OEM 3: Legacy + LSTM (BEST for Bangla and other Unicode scripts)
     """
     
     if config_override:
         config = config_override
     else:
-        config = "--oem 1 --psm 6"
+        # Default to OEM 3 for better multi-script support
+        config = "--oem 3 --psm 6"
     
     try:
-        # Use image_to_string for better punctuation preservation
+        # Use standard Tesseract image_to_string - reliable and simple
         text = pytesseract.image_to_string(
             img,
             lang=lang_string,
@@ -146,13 +287,13 @@ def _run(img, lang_string, config_override=None):
         
         conf = sum(confs) / len(confs) if confs else 0
         
-        # Clean up text while preserving punctuation
+        # Clean up text
         text = text.strip()
-        # Remove excessive whitespace but preserve single spaces
-        text = ' '.join(text.split())
         
         return text, conf
     except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"Tesseract extraction failed: {str(e)}")
         return "", 0.0
 
 
@@ -192,7 +333,7 @@ def _run_with_preprocessing_variants(img, lang_string, config):
 def _maybe_upsample_for_bengali(img, langs):
     """
     Upsample low-resolution pages to boost Bangla character fidelity.
-    Keeps scale conservative to avoid noise amplification.
+    Optimized for speed while maintaining quality.
     """
     if "bn" not in langs:
         return img
@@ -206,17 +347,20 @@ def _maybe_upsample_for_bengali(img, langs):
         return img
 
     max_dim = max(h, w)
-    if max_dim >= 1800:
+    # Reduced from 2400 to 2000 for faster processing
+    if max_dim >= 2000:
         return img
 
-    scale = min(2.0, 1800.0 / max_dim)
+    scale = min(2.0, 2000.0 / max_dim)  # Reduced from 2.5 to 2.0
 
     try:
         if isinstance(img, Image.Image):
             new_size = (int(w * scale), int(h * scale))
-            return img.resize(new_size, Image.BICUBIC)
+            # Use LANCZOS for better quality
+            return img.resize(new_size, Image.LANCZOS)
         new_w, new_h = int(w * scale), int(h * scale)
-        return cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_CUBIC)
+        # Use LANCZOS4 for better quality
+        return cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_LANCZOS4)
     except Exception:
         return img
 
@@ -371,7 +515,9 @@ def _sharpen_and_denoise(img):
         return img
 
 def preprocess_with_ocrmypdf(img, langs):
-
+    # Get oversample DPI from environment or use default
+    oversample_dpi = int(os.getenv("OCRMYPDF_OVERSAMPLE_DPI", 600))
+    
     with tempfile.TemporaryDirectory() as tmpdir:
         # Save image as temporary PDF
         input_img_path = Path(tmpdir) / "input.png"
@@ -383,8 +529,8 @@ def preprocess_with_ocrmypdf(img, langs):
         else:
             img_pil = img
         
-        # Save as PNG
-        img_pil.save(input_img_path)
+        # Save as PNG with maximum quality
+        img_pil.save(input_img_path, compress_level=0)
         
         try:
             # Build language string for ocrmypdf
@@ -409,7 +555,7 @@ def preprocess_with_ocrmypdf(img, langs):
                 jbig2_lossy=False,             # Lossless compression
                 pdfa_image_compression='lossless',  # Lossless PDF/A
                 
-                oversample=600,                 # Oversample to 500 DPI for sharper Bangla glyphs
+                oversample=oversample_dpi,      # Use configured DPI for sharper Bangla glyphs
                 remove_vectors=False,           # Keep vector graphics
                 
                 output_type='pdf',
@@ -425,9 +571,9 @@ def preprocess_with_ocrmypdf(img, langs):
                 progress_bar=False
             )
             
-            # Convert preprocessed PDF back to image
+            # Convert preprocessed PDF back to image at same DPI as oversample
             from pdf2image import convert_from_path
-            images = convert_from_path(str(output_pdf_path), dpi=600)
+            images = convert_from_path(str(output_pdf_path), dpi=oversample_dpi)
             
             if images:
                 # Convert back to numpy array
@@ -470,8 +616,11 @@ def run_tesseract(img, langs, use_ocrmypdf=True, mode="english"):
     # Upsample low-res pages for Bangla to improve stroke clarity
     img = _maybe_upsample_for_bengali(img, langs)
 
-    # Preprocess with ocrmypdf if enabled
+    # Only use OCRmyPDF preprocessing if confidence is expected to be low
+    # Skip for faster processing on good quality images
+    # This significantly speeds up processing
     if use_ocrmypdf:
+        # Skip OCRmyPDF for small adjustments, only use for complex documents
         img = preprocess_with_ocrmypdf(img, langs)
 
     # Additional sharpening/denoise to retain final strokes (helps last-word dropouts)
@@ -513,33 +662,45 @@ def run_tesseract(img, langs, use_ocrmypdf=True, mode="english"):
     easy_conf = 0.0
 
     with ThreadPoolExecutor(max_workers=OCR_ENGINE_MAX_WORKERS) as executor:
+        # Start with only primary config for faster processing
         tasks = [
             (f"Primary-{column_layout}", executor.submit(_run, img, lang_string, primary_config)),
-            ("Auto", executor.submit(_run, img, lang_string, auto_config)),
         ]
 
-        easy_future = None
-        if is_bengali:
-            easy_future = executor.submit(run_easyocr, img, langs, True)
-
-        # Collect base results
+        # Collect initial result
         for label, fut in tasks:
             text, conf = fut.result()
             results.append((text, conf, label))
 
         best_conf = max((c for _, c, _ in results), default=0)
 
-        # Kick off additional strategies if early confidence is low
-        more_tasks = []
-        if best_conf < 90:
-            more_tasks.append(("Enhanced", executor.submit(_run_with_preprocessing_variants, img, lang_string, primary_config)))
-        if best_conf < 85:
-            more_tasks.append(("PSM4", executor.submit(_run, img, lang_string, "--oem 1 --psm 4 -c preserve_interword_spaces=1")))
-            more_tasks.append(("Sparse", executor.submit(_run, img, lang_string, "--oem 1 --psm 11 -c preserve_interword_spaces=1")))
+        # Early exit if confidence is good enough - saves significant time
+        if best_conf >= 85:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.info(f"Early exit: high confidence {best_conf:.2f}% achieved with primary config")
+        else:
+            # Only try additional strategies if confidence is low
+            more_tasks = [("Auto", executor.submit(_run, img, lang_string, auto_config))]
+            
+            if best_conf < 80:
+                more_tasks.append(("Enhanced", executor.submit(_run_with_preprocessing_variants, img, lang_string, primary_config)))
+            
+            if best_conf < 70:
+                more_tasks.append(("PSM4", executor.submit(_run, img, lang_string, "--oem 3 --psm 4 -c preserve_interword_spaces=1")))
+            
+            if best_conf < 60 and is_bengali:
+                # Additional pass with PSM 13 (raw line) for very low confidence Bangla
+                more_tasks.append(("RawLine", executor.submit(_run, img, lang_string, "--oem 3 --psm 13 -c preserve_interword_spaces=1")))
 
-        for label, fut in more_tasks:
-            text, conf = fut.result()
-            results.append((text, conf, label))
+            for label, fut in more_tasks:
+                text, conf = fut.result()
+                results.append((text, conf, label))
+
+        easy_future = None
+        # Only use EasyOCR if Tesseract confidence is low or for Bangla
+        if is_bengali and best_conf < 90:
+            easy_future = executor.submit(run_easyocr, img, langs, False, mode)  # Skip OCRmyPDF in EasyOCR
 
         # Collect EasyOCR result in parallel for Bangla
         if easy_future:
