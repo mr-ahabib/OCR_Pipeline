@@ -1,5 +1,8 @@
-from pydantic import BaseModel
-from typing import List, Optional, Union
+"""OCR Pydantic schemas"""
+from pydantic import BaseModel, Field
+from typing import List, Optional
+from datetime import datetime
+
 
 class PageData(BaseModel):
     """Individual page OCR results for multi-page documents"""
@@ -8,14 +11,17 @@ class PageData(BaseModel):
     confidence: float
     character_count: int
 
+
 class PlainTextResponse(BaseModel):
     """Simple plain text response"""
     text: str
-    
+
+
 class PageByPageResponse(BaseModel):
     """Page-by-page formatted text response"""
     formatted_text: str
     summary: str
+
 
 class OCRResponse(BaseModel):
     """Full JSON OCR response with metadata"""
@@ -29,9 +35,9 @@ class OCRResponse(BaseModel):
     
     # Page-by-page results (only present for multi-page documents)
     pages_data: Optional[List[PageData]] = None
-    
+
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "plain_text_example": {
                 "text": "Sample extracted text from the document"
             },
@@ -45,15 +51,46 @@ class OCRResponse(BaseModel):
                 "pages": 3,
                 "languages": ["en"],
                 "mode": "english",
-                "engine": "Multi-strategy: OCRmyPDF + Tesseract (english mode)", 
+                "engine": "Multi-strategy: OCRmyPDF + Tesseract (english mode)",
                 "features": ["Multi-column detection", "Page-by-page OCR results"],
-                "pages_data": [
-                    {
-                        "page_number": 1,
-                        "text": "Text from page 1",
-                        "confidence": 94.5,
-                        "character_count": 156
-                    }
-                ]
+                "pages_data": []
             }
         }
+
+
+class OCRDocumentCreate(BaseModel):
+    """Schema for creating OCR document record"""
+    filename: str
+    file_type: str
+    file_size: int
+    ocr_mode: str
+    ocr_engine: str
+    languages: List[str]
+    extracted_text: str
+    confidence: float
+    total_pages: int
+    pages_data: Optional[List[dict]] = None
+    processing_time: Optional[float] = None
+    character_count: Optional[int] = None
+
+
+class OCRDocumentResponse(BaseModel):
+    """Schema for OCR document response from database"""
+    id: int
+    filename: str
+    file_type: str
+    file_size: int
+    ocr_mode: str
+    ocr_engine: str
+    languages: List[str]
+    extracted_text: str
+    confidence: float
+    total_pages: int
+    pages_data: Optional[List[dict]] = None
+    processing_time: Optional[float] = None
+    character_count: Optional[int] = None
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True

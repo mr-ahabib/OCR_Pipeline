@@ -1,6 +1,6 @@
 import pytesseract
 from pytesseract import Output
-from app.config import settings
+from app.core.config import settings
 import numpy as np
 import cv2
 import ocrmypdf

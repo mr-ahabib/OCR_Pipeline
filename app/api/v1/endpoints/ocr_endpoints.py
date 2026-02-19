@@ -1,11 +1,19 @@
-from fastapi import APIRouter, UploadFile, File, Form, HTTPException
+"""OCR API endpoints"""
+from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends
 import logging
 import time
-import json
-from typing import Literal, Union, Dict, Any
-from app.service import process_file, detect_file_type
+from typing import Literal, Dict, Any, List
+from sqlalchemy.orm import Session
+
+from app.services.ocr_service import process_file, detect_file_type
+from app.services.ocr_crud import create_ocr_document
 from app.utils.logger import log_ocr_operation
-from app.schema import OCRResponse
+from app.schemas.ocr_schemas import (
+    OCRDocumentCreate,
+    OCRDocumentResponse,
+    OCRResponse
+)
+from app.core.dependencies import get_db
 
 # Initialize router
 router = APIRouter()
@@ -93,17 +101,51 @@ def format_json_response(result: Dict[str, Any]) -> Dict[str, Any]:
             json_response["pages_data"].append(page_json)
     
     return json_response
-    
-    return json_response
 
 
-# Remove ocr_unified - endpoints will work independently with direct OCR processing
+def save_to_database(
+    db: Session, 
+    filename: str, 
+    file_type: str, 
+    file_size: int, 
+    result: Dict[str, Any],
+    processing_time: float
+) -> OCRDocumentResponse:
+    """
+    Save OCR result to database
+    """
+    try:
+        ocr_data = OCRDocumentCreate(
+            filename=filename,
+            file_type=file_type,
+            file_size=file_size,
+            ocr_mode=result['mode'],
+            ocr_engine=result['engine'],
+            languages=result['languages'],
+            extracted_text=result['text'],
+            confidence=result['confidence'],
+            total_pages=result['pages'],
+            pages_data=result.get('pages_data'),
+            processing_time=processing_time,
+            character_count=len(result['text'])
+        )
+        
+        db_document = create_ocr_document(db, ocr_data)
+        logger.info(f"Saved OCR document to database: ID={db_document.id}, filename={filename}")
+        
+        return OCRDocumentResponse.from_orm(db_document)
+    except Exception as e:
+        logger.error(f"Failed to save OCR document to database: {str(e)}")
+        # Don't fail the request if database save fails
+        return None
 
 
-@router.post("/ocr/text")
+@router.post("/text")
 async def ocr_plain_text(
     file: UploadFile = File(...),
     mode: Literal["bangla", "english", "mixed"] = Form("english"),
+    save_to_db: bool = Form(False),
+    db: Session = Depends(get_db)
 ):
     """OCR endpoint that returns only plain text"""
     request_start_time = time.time()
@@ -138,6 +180,10 @@ async def ocr_plain_text(
         if result['confidence'] < 80 or request_duration > 10.0:
             logger.warning(f"OCR CONCERN - File: {file.filename} ({file_type}) - Duration: {request_duration:.2f}s - Confidence: {result['confidence']:.2f}%")
         
+        # Save to database if requested
+        if save_to_db:
+            save_to_database(db, file.filename, file_type, len(content), result, request_duration)
+        
         return format_plain_text_response(result)
         
     except HTTPException as e:
@@ -151,10 +197,12 @@ async def ocr_plain_text(
         raise HTTPException(status_code=500, detail="Internal server error during OCR processing")
 
 
-@router.post("/ocr/pages") 
+@router.post("/pages") 
 async def ocr_page_by_page(
     file: UploadFile = File(...),
     mode: Literal["bangla", "english", "mixed"] = Form("english"),
+    save_to_db: bool = Form(False),
+    db: Session = Depends(get_db)
 ):
     """OCR endpoint that returns formatted page-by-page text with detailed information"""
     request_start_time = time.time()
@@ -189,6 +237,10 @@ async def ocr_page_by_page(
         if result['confidence'] < 80 or request_duration > 10.0:
             logger.warning(f"OCR CONCERN - File: {file.filename} ({file_type}) - Duration: {request_duration:.2f}s - Confidence: {result['confidence']:.2f}%")
         
+        # Save to database if requested
+        if save_to_db:
+            save_to_database(db, file.filename, file_type, len(content), result, request_duration)
+        
         return format_page_by_page_response(result)
         
     except HTTPException as e:
@@ -202,10 +254,12 @@ async def ocr_page_by_page(
         raise HTTPException(status_code=500, detail="Internal server error during OCR processing")
 
 
-@router.post("/ocr/json", response_model=dict)
+@router.post("/json", response_model=dict)
 async def ocr_full_json(
     file: UploadFile = File(...),
     mode: Literal["bangla", "english", "mixed"] = Form("english"),
+    save_to_db: bool = Form(True),  # Default to True for JSON endpoint
+    db: Session = Depends(get_db)
 ):
     """OCR endpoint that returns fully structured JSON with comprehensive metadata"""
     request_start_time = time.time()
@@ -240,6 +294,10 @@ async def ocr_full_json(
         if result['confidence'] < 80 or request_duration > 10.0:
             logger.warning(f"OCR CONCERN - File: {file.filename} ({file_type}) - Duration: {request_duration:.2f}s - Confidence: {result['confidence']:.2f}%")
         
+        # Save to database if requested
+        if save_to_db:
+            save_to_database(db, file.filename, file_type, len(content), result, request_duration)
+        
         return format_json_response(result)
         
     except HTTPException as e:
@@ -251,4 +309,3 @@ async def ocr_full_json(
         request_duration = time.time() - request_start_time
         logger.error(f"OCR INTERNAL ERROR - File: {file.filename} - Duration: {request_duration:.2f}s - Error: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error during OCR processing")
-

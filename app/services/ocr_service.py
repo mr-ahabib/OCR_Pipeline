@@ -1,3 +1,4 @@
+"""OCR service - Business logic for OCR processing"""
 import asyncio
 import logging
 import io
@@ -10,7 +11,8 @@ from app.ocr.tesseract_engine import run_tesseract
 from app.ocr.google_docai_engine import run_docai
 from app.utils.pdf_utils import pdf_to_images
 from app.utils.logger import setup_file_logging, log_ocr_operation, log_performance_metrics
-from app.config import settings
+from app.core.config import settings
+
 
 def detect_file_type(file_bytes: bytes) -> str:
     """
@@ -41,13 +43,13 @@ def detect_file_type(file_bytes: bytes) -> str:
     return 'unknown'
 
 
-
 # Initialize structured file logging for important events only
 setup_file_logging(logging.INFO)  # Console shows INFO+, file shows WARNING+ 
 logger = logging.getLogger(__name__)
 
 MAX_PARALLEL_PAGES = int(os.getenv("OCR_MAX_PARALLEL_PAGES", max(1, min(4, (os.cpu_count() or 4)))))
 MAX_CONVERSION_THREADS = int(os.getenv("OCR_MAX_CONVERSION_THREADS", 4))
+
 
 def process_page(image, langs, raw_bytes, mode="english", use_ocrmypdf=True):
     """
@@ -283,6 +285,3 @@ async def process_file(file_bytes, langs, mode: str = "english"):
         
         # Re-raise the exception to be handled by the API
         raise
-
-
-

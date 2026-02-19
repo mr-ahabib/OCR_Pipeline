@@ -14,3 +14,17 @@ venv/
 .idea/
 *.swp
 *.swo
+
+# Logs
+logs/
+*.log
+
+# Build and distribution directories
+dist/
+build/
+*.egg-info/ 
+# Python cache files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd

@@ -1,20 +1,67 @@
+"""Main FastAPI application"""
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.exceptions import RequestValidationError
+from sqlalchemy.exc import SQLAlchemyError
+from fastapi.openapi.utils import get_openapi
 import logging
+
+from app.core.config import settings
 from app.utils.logger import setup_file_logging
-from app.endpoints.ocr_endpoints import router as ocr_router
+from app.api.v1.api import api_router
+from app.db.init_db import init_db, create_initial_data
+from app.errors.handlers import (
+    validation_exception_handler,
+    sqlalchemy_exception_handler,
+    general_exception_handler
+)
 
 # Initialize structured file logging for important events only
 setup_file_logging(logging.INFO)  # Console shows INFO+, file shows WARNING+
 logger = logging.getLogger(__name__)
 
 app = FastAPI(
-    title="Robust OCR Engine",
-    description="Advanced OCR system with multiple output formats and language support",
-    version="2.0.0",
+    title=settings.PROJECT_NAME,
+    description="Advanced OCR system with authentication, authorization, and PostgreSQL storage",
+    version=settings.PROJECT_VERSION,
     docs_url="/docs",
-    redoc_url="/redoc"
+    redoc_url="/redoc",
+    openapi_url=f"{settings.API_V1_STR}/openapi.json"
 )
+
+
+def custom_openapi():
+    """Customize OpenAPI schema to use email instead of username in OAuth2"""
+    if app.openapi_schema:
+        return app.openapi_schema
+    
+    openapi_schema = get_openapi(
+        title=settings.PROJECT_NAME,
+        version=settings.PROJECT_VERSION,
+        description="Advanced OCR system with email-based authentication",
+        routes=app.routes,
+    )
+    
+    # Update the OAuth2 security scheme description
+    if "components" in openapi_schema:
+        if "securitySchemes" in openapi_schema["components"]:
+            if "OAuth2PasswordBearer" in openapi_schema["components"]["securitySchemes"]:
+                openapi_schema["components"]["securitySchemes"]["OAuth2PasswordBearer"]["description"] = \
+                    "OAuth2 password bearer authentication. Use your **email** and password to login."
+    
+    # Update login endpoint to show it accepts email
+    if "paths" in openapi_schema:
+        if "/api/v1/auth/login" in openapi_schema["paths"]:
+            if "post" in openapi_schema["paths"]["/api/v1/auth/login"]:
+                login_endpoint = openapi_schema["paths"]["/api/v1/auth/login"]["post"]
+                login_endpoint["summary"] = "Login with Email"
+                login_endpoint["description"] = "Authenticate using **email** and password. Use this endpoint for the Swagger 'Authorize' button."
+    
+    app.openapi_schema = openapi_schema
+    return app.openapi_schema
+
+
+app.openapi = custom_openapi
 
 # Add CORS middleware for web requests
 app.add_middleware(
@@ -25,16 +72,49 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include OCR endpoints router
-app.include_router(ocr_router, tags=["OCR"])
+# Register exception handlers
+app.add_exception_handler(RequestValidationError, validation_exception_handler)
+app.add_exception_handler(SQLAlchemyError, sqlalchemy_exception_handler)
+app.add_exception_handler(Exception, general_exception_handler)
+
+# Include API v1 router
+app.include_router(api_router, prefix=settings.API_V1_STR)
+
 
 @app.on_event("startup")
 async def startup_event():
-    """Log application startup"""
-    logger.warning("FastAPI OCR Engine STARTED - Multiple output formats available")
+    """Initialize database and log application startup"""
+    try:
+        init_db()
+        create_initial_data()
+        logger.warning(f"{settings.PROJECT_NAME} STARTED - Database initialized successfully")
+    except Exception as e:
+        logger.error(f"Failed to initialize database: {str(e)}")
+        logger.warning(f"{settings.PROJECT_NAME} STARTED - Database initialization failed, but API is running")
+
 
 @app.on_event("shutdown")
 async def shutdown_event():
     """Log application shutdown"""
-    logger.warning("FastAPI OCR Engine SHUTDOWN")
+    logger.warning(f"{settings.PROJECT_NAME} SHUTDOWN")
+
+
+@app.get("/")
+async def root():
+    """Root endpoint"""
+    return {
+        "message": "OCR Pipeline API",
+        "version": settings.PROJECT_VERSION,
+        "docs": "/docs",
+        "api": settings.API_V1_STR
+    }
+
+
+@app.get("/health")
+async def health_check():
+    """Health check endpoint"""
+    return {
+        "status": "healthy",
+        "environment": settings.ENVIRONMENT
+    }
 

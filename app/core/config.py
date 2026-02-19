@@ -1,9 +1,23 @@
+"""Application configuration"""
 import os
 from dotenv import load_dotenv
 
 load_dotenv()
 
+
 class Settings:
+    # Database Configuration
+    DATABASE_USER = os.getenv("DATABASE_USER", "postgres")
+    DATABASE_PASSWORD = os.getenv("DATABASE_PASSWORD", "123456")
+    DATABASE_HOST = os.getenv("DATABASE_HOST", "localhost")
+    DATABASE_PORT = os.getenv("DATABASE_PORT", "5432")
+    DATABASE_NAME = os.getenv("DATABASE_NAME", "OCR")
+    
+    @property
+    def DATABASE_URL(self) -> str:
+        """Construct PostgreSQL database URL"""
+        return f"postgresql://{self.DATABASE_USER}:{self.DATABASE_PASSWORD}@{self.DATABASE_HOST}:{self.DATABASE_PORT}/{self.DATABASE_NAME}"
+    
     # Tesseract Configuration
     TESSERACT_CMD = os.getenv("TESSERACT_CMD", "/usr/bin/tesseract")
     CONFIDENCE_THRESHOLD = float(os.getenv("CONFIDENCE_THRESHOLD", 90))
@@ -37,5 +51,22 @@ class Settings:
     # Development/Production Settings
     ENVIRONMENT = os.getenv("ENVIRONMENT", "production")
     DEBUG = os.getenv("DEBUG", "false").lower() == "true"
+    
+    # Project Metadata
+    PROJECT_NAME = "OCR Pipeline API"
+    PROJECT_VERSION = "2.0.0"
+    API_V1_STR = "/api/v1"
+    
+    # JWT Authentication
+    SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-change-this-in-production-min-32-chars")
+    ALGORITHM = os.getenv("ALGORITHM", "HS256")
+    ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", 60 * 24 * 7))  # 7 days
+    
+    # Super Admin Configuration (Initial Setup)
+    SUPER_ADMIN_USERNAME = os.getenv("SUPER_ADMIN_USERNAME", "admin")
+    SUPER_ADMIN_EMAIL = os.getenv("SUPER_ADMIN_EMAIL", "admin@ocrpipeline.com")
+    SUPER_ADMIN_PASSWORD = os.getenv("SUPER_ADMIN_PASSWORD", "SuperSecure@Admin123!")
+    SUPER_ADMIN_FULL_NAME = os.getenv("SUPER_ADMIN_FULL_NAME", "Super Administrator")
+
 
 settings = Settings()
