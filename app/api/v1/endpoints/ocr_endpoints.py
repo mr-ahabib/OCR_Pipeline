@@ -15,6 +15,7 @@ from app.services.free_trial_service import (
 )
 from app.utils.logger import log_ocr_operation
 from app.utils.file_storage import save_uploaded_file
+from app.utils.pdf_utils import count_pdf_pages
 from app.middleware.auth import require_user, require_user_or_trial
 from app.models.user import User
 from app.models.free_trial_user import FreeTrialUser
@@ -286,6 +287,23 @@ async def ocr_free_trial(
                 status_code=415, 
                 detail="Unsupported file format. Please upload PDF, JPEG, PNG, GIF, BMP, WebP, or TIFF files."
             )
+
+        # Enforce 3-page limit for free trial users
+        FREE_TRIAL_MAX_PAGES = 3
+        if not is_registered and file_type == 'pdf':
+            try:
+                page_count = count_pdf_pages(content)
+                if page_count > FREE_TRIAL_MAX_PAGES:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Free trial is limited to {FREE_TRIAL_MAX_PAGES} pages. "
+                               f"Your PDF has {page_count} pages. "
+                               f"Please register for an account to process larger documents."
+                    )
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.warning(f"Could not count PDF pages for trial check: {e}")
 
         result = await process_file(content, langs, mode=mode)
         
