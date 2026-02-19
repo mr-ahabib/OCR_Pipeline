@@ -12,6 +12,7 @@ class OCRDocument(Base):
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     filename = Column(String(255), nullable=False, index=True)
+    file_path = Column(String(512), nullable=True, index=True)  # Path to saved file on disk
     file_type = Column(String(50), nullable=False)  # pdf, image
     file_size = Column(Integer, nullable=False)  # in bytes
     

@@ -9,6 +9,26 @@ venv/
 .env.test.local
 .env.production.local
 
+# Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Uploaded files
+app/uploads/*
+!app/uploads/.gitkeep
+
+# Logs
+app/logs/*.txt
+app/logs/*.log
+*.log
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
 # IDE and editor directories
 .vscode/
 .idea/

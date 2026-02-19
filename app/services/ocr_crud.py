@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 from app.models.ocr_document import OCRDocument
 from app.schemas.ocr_schemas import OCRDocumentCreate
+from app.utils.file_storage import delete_uploaded_file
 
 
 def create_ocr_document(db: Session, ocr_data: OCRDocumentCreate) -> OCRDocument:
@@ -11,6 +12,7 @@ def create_ocr_document(db: Session, ocr_data: OCRDocumentCreate) -> OCRDocument
     """
     db_document = OCRDocument(
         filename=ocr_data.filename,
+        file_path=ocr_data.file_path,
         file_type=ocr_data.file_type,
         file_size=ocr_data.file_size,
         ocr_mode=ocr_data.ocr_mode,
@@ -62,10 +64,15 @@ def get_ocr_documents_by_filename(db: Session, filename: str) -> List[OCRDocumen
 
 def delete_ocr_document(db: Session, document_id: int) -> bool:
     """
-    Delete an OCR document by ID
+    Delete an OCR document by ID and its associated file from disk
     """
     document = db.query(OCRDocument).filter(OCRDocument.id == document_id).first()
     if document:
+        # Delete physical file if it exists
+        if document.file_path:
+            delete_uploaded_file(document.file_path)
+        
+        # Delete database record
         db.delete(document)
         db.commit()
         return True

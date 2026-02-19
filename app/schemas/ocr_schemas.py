@@ -61,6 +61,7 @@ class OCRResponse(BaseModel):
 class OCRDocumentCreate(BaseModel):
     """Schema for creating OCR document record"""
     filename: str
+    file_path: Optional[str] = None
     file_type: str
     file_size: int
     ocr_mode: str
@@ -78,6 +79,7 @@ class OCRDocumentResponse(BaseModel):
     """Schema for OCR document response from database"""
     id: int
     filename: str
+    file_path: Optional[str] = None
     file_type: str
     file_size: int
     ocr_mode: str

@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.services.ocr_service import process_file, detect_file_type
 from app.services.ocr_crud import create_ocr_document
 from app.utils.logger import log_ocr_operation
+from app.utils.file_storage import save_uploaded_file
 from app.schemas.ocr_schemas import (
     OCRDocumentCreate,
     OCRDocumentResponse,
@@ -105,18 +106,23 @@ def format_json_response(result: Dict[str, Any]) -> Dict[str, Any]:
 
 def save_to_database(
     db: Session, 
-    filename: str, 
+    filename: str,
+    file_content: bytes,
     file_type: str, 
     file_size: int, 
     result: Dict[str, Any],
     processing_time: float
 ) -> OCRDocumentResponse:
     """
-    Save OCR result to database
+    Save OCR result to database and file to disk
     """
     try:
+        # Save file to disk
+        file_path = save_uploaded_file(file_content, filename)
+        
         ocr_data = OCRDocumentCreate(
             filename=filename,
+            file_path=file_path,
             file_type=file_type,
             file_size=file_size,
             ocr_mode=result['mode'],
@@ -131,7 +137,7 @@ def save_to_database(
         )
         
         db_document = create_ocr_document(db, ocr_data)
-        logger.info(f"Saved OCR document to database: ID={db_document.id}, filename={filename}")
+        logger.info(f"Saved OCR document to database: ID={db_document.id}, filename={filename}, path={file_path}")
         
         return OCRDocumentResponse.from_orm(db_document)
     except Exception as e:
@@ -182,7 +188,7 @@ async def ocr_plain_text(
         
         # Save to database if requested
         if save_to_db:
-            save_to_database(db, file.filename, file_type, len(content), result, request_duration)
+            save_to_database(db, file.filename, content, file_type, len(content), result, request_duration)
         
         return format_plain_text_response(result)
         
@@ -239,7 +245,7 @@ async def ocr_page_by_page(
         
         # Save to database if requested
         if save_to_db:
-            save_to_database(db, file.filename, file_type, len(content), result, request_duration)
+            save_to_database(db, file.filename, content, file_type, len(content), result, request_duration)
         
         return format_page_by_page_response(result)
         
@@ -296,7 +302,7 @@ async def ocr_full_json(
         
         # Save to database if requested
         if save_to_db:
-            save_to_database(db, file.filename, file_type, len(content), result, request_duration)
+            save_to_database(db, file.filename, content, file_type, len(content), result, request_duration)
         
         return format_json_response(result)
         

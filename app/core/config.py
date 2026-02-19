@@ -44,6 +44,9 @@ class Settings:
     LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
     LOG_FILE = os.getenv("LOG_FILE", "app/logs/logs.txt")
     
+    # File Storage Configuration
+    UPLOAD_DIR = os.getenv("UPLOAD_DIR", "app/uploads")
+    
     # API Configuration
     MAX_UPLOAD_SIZE_MB = int(os.getenv("MAX_UPLOAD_SIZE_MB", 50))
     REQUEST_TIMEOUT = int(os.getenv("REQUEST_TIMEOUT", 300))
