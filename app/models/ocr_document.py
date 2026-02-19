@@ -1,5 +1,5 @@
 """OCR Document database model"""
-from sqlalchemy import Column, Integer, String, Text, Float, DateTime, JSON
+from sqlalchemy import Column, Integer, String, Text, Float, DateTime, JSON, ForeignKey, Boolean
 from sqlalchemy.sql import func
 from app.db.base import Base
 
@@ -11,6 +11,7 @@ class OCRDocument(Base):
     __tablename__ = "ocr_documents"
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)  # Owner of the document
     filename = Column(String(255), nullable=False, index=True)
     file_path = Column(String(512), nullable=True, index=True)  # Path to saved file on disk
     file_type = Column(String(50), nullable=False)  # pdf, image
@@ -30,6 +31,7 @@ class OCRDocument(Base):
     # Processing metadata
     processing_time = Column(Float, nullable=True)  # in seconds
     character_count = Column(Integer, nullable=True)
+    is_deleted = Column(Boolean, default=False, nullable=False, index=True)  # Soft delete flag
     
     # Timestamps
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)

@@ -7,6 +7,11 @@ from app.schemas.ocr_schemas import (
     OCRDocumentCreate,
     OCRDocumentResponse
 )
+from app.schemas.free_trial_schemas import (
+    FreeTrialInfo,
+    FreeTrialUserResponse,
+    DeviceInfoRequest
+)
 
 __all__ = [
     "PageData",
@@ -14,5 +19,8 @@ __all__ = [
     "PageByPageResponse",
     "OCRResponse",
     "OCRDocumentCreate",
-    "OCRDocumentResponse"
+    "OCRDocumentResponse",
+    "FreeTrialInfo",
+    "FreeTrialUserResponse",
+    "DeviceInfoRequest"
 ]

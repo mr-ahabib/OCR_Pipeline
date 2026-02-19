@@ -60,6 +60,7 @@ class OCRResponse(BaseModel):
 
 class OCRDocumentCreate(BaseModel):
     """Schema for creating OCR document record"""
+    user_id: int
     filename: str
     file_path: Optional[str] = None
     file_type: str
@@ -78,6 +79,7 @@ class OCRDocumentCreate(BaseModel):
 class OCRDocumentResponse(BaseModel):
     """Schema for OCR document response from database"""
     id: int
+    user_id: int
     filename: str
     file_path: Optional[str] = None
     file_type: str
@@ -91,6 +93,7 @@ class OCRDocumentResponse(BaseModel):
     pages_data: Optional[List[dict]] = None
     processing_time: Optional[float] = None
     character_count: Optional[int] = None
+    is_deleted: bool = False
     created_at: datetime
     updated_at: Optional[datetime] = None
 

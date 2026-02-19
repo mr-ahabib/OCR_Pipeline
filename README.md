@@ -10,6 +10,9 @@ High-accuracy OCR system optimized for Bangla (Bengali) text extraction with mul
 - **High Accuracy**: Best trained data and multiple extraction strategies
 - **Layout Preservation**: Maintains original document structure
 - **JWT Authentication**: Secure role-based access control
+- **🆕 Automatic Free Trial**: 3 free OCR requests per browser (zero config!)
+- **Browser Fingerprinting**: Automatic device/browser tracking
+- **Secure Cookie Tracking**: Persistent trial counting across sessions
 - **Production-Ready**: Error handling, validation, database migrations
 
 ## 📁 Project Structure
@@ -206,9 +209,12 @@ curl -X GET "http://localhost:8000/api/v1/auth/me" \
 
 | Method | Endpoint | Description | Auth Required |
 |--------|----------|-------------|---------------|
-| POST | `/api/v1/ocr/plain-text` | Extract plain text | Optional |
-| POST | `/api/v1/ocr/page-by-page` | Extract page by page | Optional |
-| POST | `/api/v1/ocr/full-json` | Full JSON with metadata | Optional |
+| POST | `/api/v1/ocr/pages` | Extract page by page text | Yes |
+| POST | `/api/v1/ocr/free-trial` | 🆕 Free trial OCR (3 uses/browser) | No |
+| GET | `/api/v1/ocr/trial-status` | 🆕 Check free trial status | No |
+
+> **Note**: Free trial endpoints automatically track usage via browser fingerprinting and cookies - no configuration needed!
+> See [FREE_TRIAL_SYSTEM.md](FREE_TRIAL_SYSTEM.md) for details.
 
 ### Document Endpoints
 

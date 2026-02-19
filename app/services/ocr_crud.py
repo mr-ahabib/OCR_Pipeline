@@ -11,6 +11,7 @@ def create_ocr_document(db: Session, ocr_data: OCRDocumentCreate) -> OCRDocument
     Create a new OCR document record in the database
     """
     db_document = OCRDocument(
+        user_id=ocr_data.user_id,
         filename=ocr_data.filename,
         file_path=ocr_data.file_path,
         file_type=ocr_data.file_type,
@@ -31,23 +32,45 @@ def create_ocr_document(db: Session, ocr_data: OCRDocumentCreate) -> OCRDocument
     return db_document
 
 
-def get_ocr_document(db: Session, document_id: int) -> Optional[OCRDocument]:
+def get_ocr_document(db: Session, document_id: int, user_id: Optional[int] = None, include_deleted: bool = False) -> Optional[OCRDocument]:
     """
     Get an OCR document by ID
+    If user_id is provided, only return document if it belongs to that user
+    If include_deleted is False, filter out soft-deleted documents
     """
-    return db.query(OCRDocument).filter(OCRDocument.id == document_id).first()
+    query = db.query(OCRDocument).filter(OCRDocument.id == document_id)
+    
+    if user_id is not None:
+        query = query.filter(OCRDocument.user_id == user_id)
+    
+    # Filter out soft-deleted documents unless include_deleted is True
+    if not include_deleted:
+        query = query.filter(OCRDocument.is_deleted == False)
+    
+    return query.first()
 
 
 def get_ocr_documents(
     db: Session, 
     skip: int = 0, 
     limit: int = 100,
-    ocr_mode: Optional[str] = None
+    ocr_mode: Optional[str] = None,
+    user_id: Optional[int] = None,
+    include_deleted: bool = False
 ) -> List[OCRDocument]:
     """
     Get list of OCR documents with optional filtering
+    If user_id is provided, only return documents belonging to that user
+    If include_deleted is False, filter out soft-deleted documents
     """
     query = db.query(OCRDocument)
+    
+    if user_id is not None:
+        query = query.filter(OCRDocument.user_id == user_id)
+    
+    # Filter out soft-deleted documents unless include_deleted is True
+    if not include_deleted:
+        query = query.filter(OCRDocument.is_deleted == False)
     
     if ocr_mode:
         query = query.filter(OCRDocument.ocr_mode == ocr_mode)
@@ -55,41 +78,89 @@ def get_ocr_documents(
     return query.order_by(OCRDocument.created_at.desc()).offset(skip).limit(limit).all()
 
 
-def get_ocr_documents_by_filename(db: Session, filename: str) -> List[OCRDocument]:
+def get_ocr_documents_by_filename(db: Session, filename: str, user_id: Optional[int] = None, include_deleted: bool = False) -> List[OCRDocument]:
     """
     Get OCR documents by filename
+    If user_id is provided, only return documents belonging to that user
+    If include_deleted is False, exclude soft-deleted documents
     """
-    return db.query(OCRDocument).filter(OCRDocument.filename.like(f"%{filename}%")).all()
+    query = db.query(OCRDocument).filter(OCRDocument.filename.like(f"%{filename}%"))
+    
+    if user_id is not None:
+        query = query.filter(OCRDocument.user_id == user_id)
+    
+    if not include_deleted:
+        query = query.filter(OCRDocument.is_deleted == False)
+    
+    return query.all()
 
 
-def delete_ocr_document(db: Session, document_id: int) -> bool:
+def delete_ocr_document(db: Session, document_id: int, user_id: Optional[int] = None, delete_from_storage: bool = False) -> bool:
     """
-    Delete an OCR document by ID and its associated file from disk
+    Delete an OCR document by ID
+    
+    Args:
+        db: Database session
+        document_id: ID of document to delete
+        user_id: If provided, only delete if document belongs to this user
+        delete_from_storage: If True, permanently delete (hard delete - removes file and record)
+                           If False, soft delete (marks as deleted, keeps file and record)
+    
+    Returns:
+        bool: True if document was deleted, False otherwise
     """
-    document = db.query(OCRDocument).filter(OCRDocument.id == document_id).first()
+    query = db.query(OCRDocument).filter(OCRDocument.id == document_id)
+    
+    if user_id is not None:
+        query = query.filter(OCRDocument.user_id == user_id)
+    
+    document = query.first()
     if document:
-        # Delete physical file if it exists
-        if document.file_path:
-            delete_uploaded_file(document.file_path)
+        if delete_from_storage:
+            # Hard delete: Remove physical file and database record
+            if document.file_path:
+                delete_uploaded_file(document.file_path)
+            db.delete(document)
+        else:
+            # Soft delete: Mark as deleted, keep file and record
+            document.is_deleted = True
         
-        # Delete database record
-        db.delete(document)
         db.commit()
         return True
     return False
 
 
-def get_documents_count(db: Session) -> int:
+def get_documents_count(db: Session, user_id: Optional[int] = None, include_deleted: bool = False) -> int:
     """
     Get total count of OCR documents
+    If user_id is provided, only count documents belonging to that user
+    If include_deleted is False, exclude soft-deleted documents
     """
-    return db.query(OCRDocument).count()
+    query = db.query(OCRDocument)
+    
+    if user_id is not None:
+        query = query.filter(OCRDocument.user_id == user_id)
+    
+    if not include_deleted:
+        query = query.filter(OCRDocument.is_deleted == False)
+    
+    return query.count()
 
 
-def get_average_confidence(db: Session) -> float:
+def get_average_confidence(db: Session, user_id: Optional[int] = None, include_deleted: bool = False) -> float:
     """
     Get average confidence across all documents
+    If user_id is provided, only calculate for documents belonging to that user
+    If include_deleted is False, exclude soft-deleted documents
     """
     from sqlalchemy import func
-    result = db.query(func.avg(OCRDocument.confidence)).scalar()
+    query = db.query(func.avg(OCRDocument.confidence))
+    
+    if user_id is not None:
+        query = query.filter(OCRDocument.user_id == user_id)
+    
+    if not include_deleted:
+        query = query.filter(OCRDocument.is_deleted == False)
+    
+    result = query.scalar()
     return result if result else 0.0
