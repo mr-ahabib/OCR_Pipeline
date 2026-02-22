@@ -72,6 +72,11 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class GoogleAuthRequest(BaseModel):
+    """Schema for Google Sign-In via ID token from frontend"""
+    id_token: str = Field(..., description="Google ID token obtained from frontend Google Sign-In")
+
+
 class PasswordChange(BaseModel):
     """Schema for changing password"""
     old_password: str

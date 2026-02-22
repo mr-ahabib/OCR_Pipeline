@@ -11,13 +11,15 @@ from app.services.auth_service import (
     get_user_by_username,
     get_user_by_email,
     get_password_hash,
-    verify_password
+    verify_password,
+    get_or_create_google_user,
 )
 from app.schemas.auth_schemas import (
     UserCreate,
     UserResponse,
     Token,
     PasswordChange,
+    GoogleAuthRequest,
 )
 from app.middleware.auth import get_current_active_user
 from app.models.user import User, UserRole
@@ -28,6 +30,8 @@ from app.errors.exceptions import (
     NotFoundException,
     BadRequestException
 )
+from google.oauth2 import id_token as google_id_token
+from google.auth.transport import requests as google_requests
 
 router = APIRouter()
 
@@ -92,4 +96,43 @@ async def change_password(
     db.commit()
     
     return {"message": "Password changed successfully"}
+
+
+@router.post("/google", response_model=Token, status_code=status.HTTP_200_OK)
+async def google_sign_in(
+    payload: GoogleAuthRequest,
+    db: Session = Depends(get_db),
+):
+    if not settings.GOOGLE_CLIENT_ID:
+        raise BadRequestException(detail="Google Sign-In is not configured on this server.")
+
+    try:
+        idinfo = google_id_token.verify_oauth2_token(
+            payload.id_token,
+            google_requests.Request(),
+            settings.GOOGLE_CLIENT_ID,
+        )
+    except ValueError as exc:
+        raise UnauthorizedException(detail=f"Invalid Google ID token: {exc}")
+
+    google_id = idinfo.get("sub")
+    email = idinfo.get("email")
+    full_name = idinfo.get("name")
+    email_verified = idinfo.get("email_verified", False)
+
+    if not email or not email_verified:
+        raise UnauthorizedException(detail="Google account email is not verified.")
+
+    user = get_or_create_google_user(db, google_id=google_id, email=email, full_name=full_name)
+
+    if not user.is_active:
+        raise UnauthorizedException(detail="This account has been deactivated.")
+
+    access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(
+        data={"sub": str(user.id), "username": user.username, "role": user.role.value},
+        expires_delta=access_token_expires,
+    )
+
+    return {"access_token": access_token, "token_type": "bearer", "user": user}
 

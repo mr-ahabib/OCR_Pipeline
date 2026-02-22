@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.models.user import User, UserRole
 from app.schemas.auth_schemas import UserCreate, TokenData
 from app.core.config import settings
+import re
 
 pwd_context = CryptContext(
     schemes=["bcrypt"],
@@ -15,8 +16,10 @@ pwd_context = CryptContext(
 )
 
 
-def verify_password(plain_password: str, hashed_password: str) -> bool:
+def verify_password(plain_password: str, hashed_password: Optional[str]) -> bool:
     """Verify a plain password against a hashed password"""
+    if not hashed_password:
+        return False  # OAuth-only users have no password
     return pwd_context.verify(plain_password, hashed_password)
 
 
@@ -131,3 +134,53 @@ def get_user_by_id(db: Session, user_id: int) -> Optional[User]:
     Get user by ID
     """
     return db.query(User).filter(User.id == user_id).first()
+
+
+def get_or_create_google_user(db: Session, google_id: str, email: str, full_name: Optional[str]) -> User:
+    """
+    Find an existing user by google_id or email, or create a new one.
+    Links an existing email-based account to Google if not yet linked.
+    """
+    # 1. Look up by google_id
+    user = db.query(User).filter(User.google_id == google_id).first()
+    if user:
+        user.last_login = datetime.utcnow()
+        db.commit()
+        return user
+
+    # 2. Look up by email – link the Google account to the existing user
+    user = db.query(User).filter(User.email == email).first()
+    if user:
+        user.google_id = google_id
+        user.auth_provider = "google"
+        user.is_verified = True
+        if full_name and not user.full_name:
+            user.full_name = full_name
+        user.last_login = datetime.utcnow()
+        db.commit()
+        db.refresh(user)
+        return user
+
+    # 3. Create a brand-new user
+    base_username = re.sub(r'[^a-zA-Z0-9_]', '', (full_name or email.split('@')[0]).replace(' ', '_'))[:40] or 'user'
+    username = base_username
+    counter = 1
+    while db.query(User).filter(User.username == username).first():
+        username = f"{base_username}{counter}"
+        counter += 1
+
+    new_user = User(
+        username=username,
+        email=email,
+        full_name=full_name,
+        hashed_password=None,
+        google_id=google_id,
+        auth_provider="google",
+        role=UserRole.USER,
+        is_active=True,
+        is_verified=True,
+    )
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+    return new_user
