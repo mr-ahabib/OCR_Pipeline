@@ -16,8 +16,7 @@ from app.errors.handlers import (
     general_exception_handler
 )
 
-# Initialize structured file logging for important events only
-setup_file_logging(logging.INFO)  # Console shows INFO+, file shows WARNING+
+setup_file_logging(logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI(
@@ -42,14 +41,12 @@ def custom_openapi():
         routes=app.routes,
     )
     
-    # Update the OAuth2 security scheme description
     if "components" in openapi_schema:
         if "securitySchemes" in openapi_schema["components"]:
             if "OAuth2PasswordBearer" in openapi_schema["components"]["securitySchemes"]:
                 openapi_schema["components"]["securitySchemes"]["OAuth2PasswordBearer"]["description"] = \
                     "OAuth2 password bearer authentication. Use your **email** and password to login."
     
-    # Update login endpoint to show it accepts email
     if "paths" in openapi_schema:
         if "/api/v1/auth/login" in openapi_schema["paths"]:
             if "post" in openapi_schema["paths"]["/api/v1/auth/login"]:
@@ -63,7 +60,6 @@ def custom_openapi():
 
 app.openapi = custom_openapi
 
-# Add CORS middleware for web requests
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -72,12 +68,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Register exception handlers
 app.add_exception_handler(RequestValidationError, validation_exception_handler)
 app.add_exception_handler(SQLAlchemyError, sqlalchemy_exception_handler)
 app.add_exception_handler(Exception, general_exception_handler)
 
-# Include API v1 router
 app.include_router(api_router, prefix=settings.API_V1_STR)
 
 

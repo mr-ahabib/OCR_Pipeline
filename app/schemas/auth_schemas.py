@@ -90,4 +90,3 @@ class PasswordChange(BaseModel):
         if not any(char.islower() for char in v):
             raise ValueError('Password must contain at least one lowercase letter')
         return v
-        return v

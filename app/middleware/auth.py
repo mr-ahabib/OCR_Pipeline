@@ -94,7 +94,6 @@ async def get_user_or_trial(
     Automatically generates device fingerprint and cookie ID
     Returns tuple of (user_or_trial, cookie_id_to_set, needs_cookie_consent)
     """
-    # First, try to get authenticated user
     if token:
         token_data = decode_access_token(token)
         if token_data and token_data.user_id:
@@ -102,29 +101,23 @@ async def get_user_or_trial(
             if user and user.is_active:
                 return user, None, False
     
-    # If no authenticated user, handle as free trial user
-    # Get device characteristics for fingerprinting (NOT browser-specific)
     client_ip = request.client.host if request.client else None
     accept_language = request.headers.get("Accept-Language")
-    # Note: Excluding User-Agent to make this device-based, not browser-based
     
-    # Generate device fingerprint (same for all browsers on same device)
     device_fingerprint = generate_device_fingerprint(
         ip_address=client_ip,
         accept_language=accept_language,
-        screen_resolution=None  # Could be added via frontend if needed
+        screen_resolution=None
     )
     
-    # Get or generate cookie ID
     cookie_id = request.cookies.get("free_trial_id")
     needs_cookie_consent = False
     
     if not cookie_id:
         cookie_id = generate_cookie_id()
-        needs_cookie_consent = True  # New user needs cookie consent
+        needs_cookie_consent = True
     
-    # Get or create free trial user
-    user_agent = request.headers.get("User-Agent")  # Still log for tracking
+    user_agent = request.headers.get("User-Agent")
     trial_user, is_new = get_or_create_free_trial_user(
         db=db,
         device_fingerprint=device_fingerprint,
@@ -133,11 +126,9 @@ async def get_user_or_trial(
         ip_address=client_ip
     )
     
-    # Check if we need to ask for cookie consent
     if is_new or trial_user.cookie_consent_given is None:
         needs_cookie_consent = True
     
-    # Return trial user and cookie to set (if consent will be given)
     cookie_to_set = cookie_id if not needs_cookie_consent else None
     return trial_user, cookie_to_set, needs_cookie_consent
 
@@ -156,11 +147,9 @@ async def require_user_or_trial(
     """
     user_or_trial, cookie_to_set, needs_cookie_consent = await get_user_or_trial(request, token, db)
     
-    # If it's a registered user, return immediately
     if isinstance(user_or_trial, User):
         return (user_or_trial, None, None, False)
     
-    # If it's a free trial user, check usage limits
     trial_info = check_and_increment_usage(db, user_or_trial)
     
     if not trial_info["allowed"]:

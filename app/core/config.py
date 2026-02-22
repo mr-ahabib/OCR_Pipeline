@@ -51,6 +51,13 @@ class Settings:
     MAX_UPLOAD_SIZE_MB = int(os.getenv("MAX_UPLOAD_SIZE_MB", 50))
     REQUEST_TIMEOUT = int(os.getenv("REQUEST_TIMEOUT", 300))
     
+    # PayStation Payment Gateway
+    PAYSTATION_MERCHANT_ID = os.getenv("PAYSTATION_MERCHANT_ID", "").strip()
+    PAYSTATION_MERCHANT_PASSWORD = os.getenv("PAYSTATION_MERCHANT_PASSWORD", "").strip()
+    PAYSTATION_API_URL = os.getenv("PAYSTATION_API_URL", "https://api.paystation.com.bd/initiate-payment")
+    # Public base URL of this API (used to build callback_url)
+    API_BASE_URL = os.getenv("API_BASE_URL")
+
     # Development/Production Settings
     ENVIRONMENT = os.getenv("ENVIRONMENT", "production")
     DEBUG = os.getenv("DEBUG", "false").lower() == "true"

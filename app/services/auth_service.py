@@ -8,12 +8,10 @@ from app.models.user import User, UserRole
 from app.schemas.auth_schemas import UserCreate, TokenData
 from app.core.config import settings
 
-# Password hashing context with strong security settings
-# Using bcrypt with 14 rounds (2^14 iterations) for enhanced security
 pwd_context = CryptContext(
     schemes=["bcrypt"],
     deprecated="auto",
-    bcrypt__rounds=14  # Increased from default 12 for stronger security
+    bcrypt__rounds=14
 )
 
 
@@ -55,7 +53,6 @@ def decode_access_token(token: str) -> Optional[TokenData]:
         if user_id_str is None:
             return None
         
-        # Convert user_id from string to int
         try:
             user_id = int(user_id_str)
         except (ValueError, TypeError):
@@ -63,13 +60,11 @@ def decode_access_token(token: str) -> Optional[TokenData]:
         
         return TokenData(user_id=user_id, username=username, role=UserRole(role) if role else None)
     except JWTError as e:
-        # Log the error for debugging
         import logging
         logger = logging.getLogger(__name__)
         logger.error(f"JWT decode error: {str(e)}")
         return None
     except Exception as e:
-        # Log unexpected errors
         import logging
         logger = logging.getLogger(__name__)
         logger.error(f"Unexpected error decoding token: {str(e)}")
@@ -88,7 +83,6 @@ def authenticate_user(db: Session, email: str, password: str) -> Optional[User]:
     if not user.is_active:
         return None
     
-    # Update last login
     user.last_login = datetime.utcnow()
     db.commit()
     

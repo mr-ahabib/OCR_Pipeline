@@ -40,7 +40,7 @@ def create_initial_data() -> None:
             db.add(super_user)
             db.commit()
             logger.info(f"Super admin created: {settings.SUPER_ADMIN_USERNAME}")
-            logger.warning("⚠️  Change default credentials in .env file!")
+            logger.warning("Change default credentials in .env file!")
         
     except Exception as e:
         logger.error(f"Error creating initial data: {str(e)}")

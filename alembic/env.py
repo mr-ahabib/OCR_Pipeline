@@ -15,6 +15,7 @@ from app.core.config import settings
 from app.db.base import Base
 from app.models.ocr_document import OCRDocument
 from app.models.user import User
+from app.models.payment import PaymentHistory  # noqa: F401  – ensures table is in metadata
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

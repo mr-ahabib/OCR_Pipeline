@@ -14,7 +14,7 @@ class FreeTrialInfo(BaseModel):
     needs_cookie_consent: bool = Field(default=False, description="Whether cookie consent is needed")
     
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "usage_count": 1,
                 "max_usage": 3,
@@ -38,7 +38,7 @@ class FreeTrialUserResponse(BaseModel):
     is_blocked: bool
     
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 class DeviceInfoRequest(BaseModel):
@@ -48,7 +48,7 @@ class DeviceInfoRequest(BaseModel):
     user_agent: Optional[str] = Field(None, description="Browser user agent string")
     
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "device_id": "abc123xyz789",
                 "cookie_id": "550e8400-e29b-41d4-a716-446655440000",
@@ -62,7 +62,7 @@ class CookieConsentRequest(BaseModel):
     consent_given: bool = Field(..., description="Whether user accepted (True) or rejected (False) cookies")
     
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "consent_given": True
             }
@@ -75,7 +75,7 @@ class CookieConsentResponse(BaseModel):
     message: str = Field(..., description="Status message")
     
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "success": True,
                 "message": "Cookie consent recorded successfully"

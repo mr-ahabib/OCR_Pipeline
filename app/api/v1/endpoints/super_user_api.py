@@ -1,7 +1,7 @@
-"""Super User API endpoints - Admin management and privileged operations"""
-from fastapi import APIRouter, Depends, status, Query
+"""Super User API endpoints"""
+from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
-from typing import List, Optional
+from typing import List
 
 from app.core.dependencies import get_db
 from app.services.auth_service import (
@@ -9,18 +9,12 @@ from app.services.auth_service import (
     get_user_by_username,
     get_user_by_email
 )
-from app.services.free_trial_service import (
-    get_trial_user_by_device_id,
-    block_trial_user
-)
 from app.schemas.auth_schemas import (
     UserCreate,
     UserResponse
 )
-from app.schemas.free_trial_schemas import FreeTrialUserResponse
 from app.middleware.auth import require_super_user
 from app.models.user import User, UserRole
-from app.models.free_trial_user import FreeTrialUser
 from app.errors.exceptions import (
     ConflictException,
     NotFoundException,
@@ -43,7 +37,6 @@ async def create_admin_user(
     if get_user_by_email(db, user_data.email):
         raise ConflictException(detail="Email already registered")
     
-    # Super user can create admin users
     if user_data.role not in [UserRole.ADMIN, UserRole.USER]:
         raise BadRequestException(detail="Can only create ADMIN or USER roles")
     

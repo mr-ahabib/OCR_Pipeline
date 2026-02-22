@@ -2,7 +2,7 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional
-from app.middleware.auth import require_super_user, require_user, require_admin
+from app.middleware.auth import require_user
 from app.models.user import User, UserRole
 from app.services.ocr_crud import (
     get_ocr_document,

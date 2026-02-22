@@ -15,21 +15,15 @@ def generate_device_fingerprint(
     screen_resolution: Optional[str] = None
 ) -> str:
     """
-    Generate a device fingerprint from available data
-    This creates a unique identifier based on DEVICE characteristics (not browser)
-    Same device will have same fingerprint across different browsers
-    
-    Note: We deliberately exclude User-Agent to make this device-specific, not browser-specific
+    Generate a device fingerprint from available data.
+    Excludes User-Agent so the same device maps to the same fingerprint
+    regardless of which browser is used.
     """
-    # Combine device-specific data (NOT browser-specific)
-    # Exclude user_agent so different browsers on same device = same fingerprint
     fingerprint_data = (
         f"{ip_address or 'unknown'}|"
         f"{accept_language or 'unknown'}|"
         f"{screen_resolution or 'unknown'}"
     )
-    
-    # Create SHA-256 hash
     return hashlib.sha256(fingerprint_data.encode()).hexdigest()
 
 
@@ -41,26 +35,18 @@ def get_or_create_free_trial_user(
     ip_address: Optional[str] = None
 ) -> tuple[FreeTrialUser, bool]:
     """
-    Get existing free trial user or create new one
-    Returns (trial_user, is_new) tuple
-    
-    Strategy (device-based, NOT browser-based):
-    1. First try to find by device_fingerprint (primary key)
-    2. Then try cookie_id as fallback (if consent given)
-    3. Create new if neither found
-    
-    This ensures 3 trials per DEVICE, not per browser
+    Get existing free trial user or create new one.
+    Looks up by device_fingerprint first, then cookie_id as fallback.
+    Returns (trial_user, is_new) tuple.
     """
     trial_user = None
     is_new = False
     
-    # Try to find by device fingerprint first (most reliable for device tracking)
     trial_user = db.query(FreeTrialUser).filter(
         FreeTrialUser.device_id == device_fingerprint
     ).first()
     
     if trial_user:
-        # Update last used timestamp and cookie if provided
         trial_user.last_used_at = datetime.utcnow()
         if cookie_id and not trial_user.cookie_id:
             trial_user.cookie_id = cookie_id
@@ -72,14 +58,12 @@ def get_or_create_free_trial_user(
         db.refresh(trial_user)
         return trial_user, False
     
-    # If not found by fingerprint, try by cookie_id (if user accepted cookies before)
     if cookie_id:
         trial_user = db.query(FreeTrialUser).filter(
             FreeTrialUser.cookie_id == cookie_id
         ).first()
         
         if trial_user:
-            # Update device fingerprint and timestamp
             trial_user.device_id = device_fingerprint
             trial_user.last_used_at = datetime.utcnow()
             if user_agent:
@@ -90,7 +74,6 @@ def get_or_create_free_trial_user(
             db.refresh(trial_user)
             return trial_user, False
     
-    # Create new free trial user (cookie consent not yet asked)
     trial_user = FreeTrialUser(
         device_id=device_fingerprint,
         cookie_id=cookie_id,
@@ -98,7 +81,7 @@ def get_or_create_free_trial_user(
         ip_address=ip_address,
         usage_count=0,
         max_usage=3,
-        cookie_consent_given=None  # Not yet asked
+        cookie_consent_given=None
     )
     
     db.add(trial_user)
@@ -134,7 +117,6 @@ def check_and_increment_usage(
             "message": "Free trial limit reached. Please register to continue using our service."
         }
     
-    # Increment usage
     trial_user.usage_count += 1
     trial_user.last_used_at = datetime.utcnow()
     db.commit()

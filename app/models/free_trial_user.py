@@ -16,22 +16,17 @@ class FreeTrialUser(Base):
     usage_count = Column(Integer, default=0, nullable=False)
     max_usage = Column(Integer, default=3, nullable=False)
     
-    # Additional tracking information
     first_used_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     last_used_at = Column(DateTime(timezone=True), onupdate=func.now(), nullable=True)
     
-    # Cookie tracking
     cookie_id = Column(String(255), nullable=True, index=True)
     
-    # Cookie consent tracking
-    cookie_consent_given = Column(Boolean, nullable=True)  # None=not asked, True=accepted, False=rejected
-    cookie_consent_at = Column(DateTime(timezone=True), nullable=True)  # When consent was given/rejected
+    cookie_consent_given = Column(Boolean, nullable=True)
+    cookie_consent_at = Column(DateTime(timezone=True), nullable=True)
     
-    # User agent and IP for additional tracking
     user_agent = Column(String(500), nullable=True)
-    ip_address = Column(String(45), nullable=True)  # IPv6 max length is 45 chars
+    ip_address = Column(String(45), nullable=True)
     
-    # Block flag for abuse prevention
     is_blocked = Column(Boolean, default=False, nullable=False)
     
     def __repr__(self):

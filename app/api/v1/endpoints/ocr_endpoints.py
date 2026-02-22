@@ -1,37 +1,33 @@
 """OCR API endpoints"""
-from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends, Request, Header, Response
+from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends, Request, Response
 import logging
 import time
-from typing import Literal, Dict, Any, List, Optional, Union
+from typing import Literal, Dict, Any, List, Optional
 from sqlalchemy.orm import Session
 
 from app.services.ocr_service import process_file, detect_file_type
 from app.services.ocr_crud import create_ocr_document
 from app.services.free_trial_service import (
-    get_trial_user_info,
     generate_device_fingerprint,
-    generate_cookie_id,
     update_cookie_consent
 )
 from app.utils.logger import log_ocr_operation
 from app.utils.file_storage import save_uploaded_file
 from app.utils.pdf_utils import count_pdf_pages
+from app.services.subscription_service import check_and_consume_quota, get_subscription_status
 from app.middleware.auth import require_user, require_user_or_trial
 from app.models.user import User
 from app.models.free_trial_user import FreeTrialUser
 from app.schemas.ocr_schemas import (
     OCRDocumentCreate,
     OCRDocumentResponse,
-    OCRResponse
 )
-from app.schemas.free_trial_schemas import FreeTrialInfo, CookieConsentRequest
+from app.schemas.free_trial_schemas import CookieConsentRequest
 from app.core.dependencies import get_db
 
-# Initialize router
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
-# Define OCR modes
 OCR_MODES = {
     "bangla": ["bn"],
     "english": ["en"],
@@ -129,7 +125,6 @@ def save_to_database(
     Save OCR result to database and file to disk
     """
     try:
-        # Save file to disk
         file_path = save_uploaded_file(file_content, filename)
         
         ocr_data = OCRDocumentCreate(
@@ -174,12 +169,11 @@ async def ocr_page_by_page(
         langs = OCR_MODES.get(mode, ["en"])
         content = await file.read()
         
-        # Validate file size and content
         if len(content) == 0:
             logger.error(f"EMPTY FILE uploaded: {file.filename}")
             raise HTTPException(status_code=400, detail="Empty file uploaded")
         
-        if len(content) > 50 * 1024 * 1024:  # 50MB limit
+        if len(content) > 50 * 1024 * 1024:
             logger.error(f"FILE TOO LARGE: {file.filename} ({len(content)//1024//1024}MB)")
             raise HTTPException(status_code=413, detail="File too large (max 50MB)")
 
@@ -192,19 +186,39 @@ async def ocr_page_by_page(
                 detail="Unsupported file format. Please upload PDF, JPEG, PNG, GIF, BMP, WebP, or TIFF files."
             )
 
+        if file_type == 'pdf':
+            try:
+                pages_in_file = count_pdf_pages(content)
+            except Exception:
+                pages_in_file = 1  # safe fallback
+        else:
+            pages_in_file = 1
+
+        try:
+            check_and_consume_quota(db, current_user, pages_in_file)
+        except ValueError as quota_err:
+            quota_status = get_subscription_status(current_user)
+            raise HTTPException(
+                status_code=402,
+                detail={
+                    "message": str(quota_err),
+                    "subscription_status": quota_status.model_dump(),
+                },
+            )
+
         result = await process_file(content, langs, mode=mode)
         
         request_duration = time.time() - request_start_time
         
-        # Log concerning results (low confidence or slow processing)
         if result['confidence'] < 80 or request_duration > 10.0:
             logger.warning(f"OCR CONCERN - File: {file.filename} ({file_type}) - Duration: {request_duration:.2f}s - Confidence: {result['confidence']:.2f}%")
         
-        # Save to database if requested
         if save_to_db:
             save_to_database(db, current_user.id, file.filename, content, file_type, len(content), result, request_duration)
-        
-        return format_page_by_page_response(result)
+
+        response_data = format_page_by_page_response(result)
+        response_data["quota"] = get_subscription_status(current_user).model_dump()
+        return response_data
         
     except HTTPException as e:
         request_duration = time.time() - request_start_time
@@ -238,38 +252,22 @@ async def ocr_free_trial(
     request_start_time = time.time()
     
     try:
-        # Get user or trial user and check limits
-        # This automatically generates device fingerprint and handles cookies
         user_or_trial, trial_info, cookie_to_set, needs_cookie_consent = await require_user_or_trial(
             request=request,
             token=None,
             db=db
         )
         
-        # Set cookie if needed (new user or cookie not present)
-        if cookie_to_set:
-            response.set_cookie(
-                key="free_trial_id",
-                value=cookie_to_set,
-                max_age=365 * 24 * 60 * 60,  # 1 year
-                httponly=True,
-                samesite="lax",
-                secure=False  # Set to True in production with HTTPS
-            )
-        
-        # Determine if this is a registered user or trial user
         is_registered = isinstance(user_or_trial, User)
         user_id = user_or_trial.id if is_registered else None
         
         langs = OCR_MODES.get(mode, ["en"])
         content = await file.read()
         
-        # Validate file size and content
         if len(content) == 0:
             logger.error(f"EMPTY FILE uploaded: {file.filename}")
             raise HTTPException(status_code=400, detail="Empty file uploaded")
         
-        # Stricter file size limit for free trial users (10MB)
         max_file_size = 50 * 1024 * 1024 if is_registered else 10 * 1024 * 1024
         if len(content) > max_file_size:
             size_limit = "50MB" if is_registered else "10MB"
@@ -288,7 +286,6 @@ async def ocr_free_trial(
                 detail="Unsupported file format. Please upload PDF, JPEG, PNG, GIF, BMP, WebP, or TIFF files."
             )
 
-        # Enforce 3-page limit for free trial users
         FREE_TRIAL_MAX_PAGES = 3
         if not is_registered and file_type == 'pdf':
             try:
@@ -305,11 +302,31 @@ async def ocr_free_trial(
             except Exception as e:
                 logger.warning(f"Could not count PDF pages for trial check: {e}")
 
+        if is_registered:
+            if file_type == 'pdf':
+                try:
+                    pages_in_file = count_pdf_pages(content)
+                except Exception:
+                    pages_in_file = 1
+            else:
+                pages_in_file = 1
+
+            try:
+                check_and_consume_quota(db, user_or_trial, pages_in_file)
+            except ValueError as quota_err:
+                quota_status = get_subscription_status(user_or_trial)
+                raise HTTPException(
+                    status_code=402,
+                    detail={
+                        "message": str(quota_err),
+                        "subscription_status": quota_status.model_dump(),
+                    },
+                )
+
         result = await process_file(content, langs, mode=mode)
         
         request_duration = time.time() - request_start_time
         
-        # Log concerning results
         user_type = "registered" if is_registered else "trial"
         if result['confidence'] < 80 or request_duration > 10.0:
             logger.warning(
@@ -317,17 +334,14 @@ async def ocr_free_trial(
                 f"Duration: {request_duration:.2f}s - Confidence: {result['confidence']:.2f}%"
             )
         
-        # Save to database for registered users only
         if is_registered:
             save_to_database(
                 db, user_id, file.filename, content, 
                 file_type, len(content), result, request_duration
             )
         
-        # Build response with trial info
         response_data = format_page_by_page_response(result)
         
-        # Add trial information for trial users - AUTOMATIC SYSTEM RESPONSE
         if not is_registered and trial_info:
             response_data["trial_info"] = {
                 "usage_count": trial_info["usage_count"],
@@ -335,9 +349,10 @@ async def ocr_free_trial(
                 "message": trial_info["message"],
                 "needs_cookie_consent": needs_cookie_consent
             }
+
+        if is_registered:
+            response_data["quota"] = get_subscription_status(user_or_trial).model_dump()
         
-        # Set cookie only if user has accepted (or will accept via frontend)
-        # Frontend should call /cookie-consent endpoint before using trials
         if cookie_to_set and not needs_cookie_consent:
             response.set_cookie(
                 key="free_trial_id",
@@ -373,18 +388,15 @@ async def record_cookie_consent(
     This endpoint is called when the user responds to the cookie consent dialog.
     The consent decision is stored in the database along with the timestamp.
     """
-    # Get device characteristics for fingerprinting
     client_ip = request.client.host if request.client else None
     accept_language = request.headers.get("Accept-Language")
     
-    # Generate device fingerprint
     device_fingerprint = generate_device_fingerprint(
         ip_address=client_ip,
         accept_language=accept_language,
         screen_resolution=None
     )
     
-    # Get cookie ID from request
     cookie_id = request.cookies.get("free_trial_id")
     
     if not cookie_id:
@@ -393,7 +405,6 @@ async def record_cookie_consent(
             detail="No cookie ID found. Please use the service first to get a cookie."
         )
     
-    # Update cookie consent in database
     success = update_cookie_consent(
         db=db,
         device_fingerprint=device_fingerprint,

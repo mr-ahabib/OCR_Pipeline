@@ -2,7 +2,6 @@
 from fastapi import APIRouter, Depends, status, Form
 from sqlalchemy.orm import Session
 from datetime import timedelta
-from typing import List, Optional
 
 from app.core.dependencies import get_db
 from app.services.auth_service import (
@@ -19,12 +18,8 @@ from app.schemas.auth_schemas import (
     UserResponse,
     Token,
     PasswordChange,
-    LoginRequest
 )
-from app.middleware.auth import (
-    get_current_active_user,
-    require_admin
-)
+from app.middleware.auth import get_current_active_user
 from app.models.user import User, UserRole
 from app.core.config import settings
 from app.errors.exceptions import (
@@ -46,7 +41,6 @@ async def register(user_data: UserCreate, db: Session = Depends(get_db)):
     if get_user_by_email(db, user_data.email):
         raise ConflictException(detail="Email already registered")
     
-    # Force role to USER for public registration
     user_data.role = UserRole.USER
     user = create_user(db, user_data)
     return user
@@ -64,7 +58,6 @@ async def login(
     **For Swagger UI Authorize**: Enter your **email address** in the 'username' field.
     This endpoint uses email-based authentication.
     """
-    # The 'username' field actually contains the email
     user = authenticate_user(db, username, password)
     
     if not user:
