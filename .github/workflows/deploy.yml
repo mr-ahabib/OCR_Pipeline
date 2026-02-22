@@ -1,0 +1,27 @@
+name: Deploy FastAPI OCR_Pipeline
+
+on:
+  push:
+    branches:
+      - main  # Auto deploy on main branch
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy to VPS
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            cd ~/OCR_Pipeline
+            git reset --hard
+            git pull origin main
+            source venv/bin/activate
+            pip install -r requirements.txt
+            alembic upgrade head
+            systemctl restart fastapi
+            echo "Deployment finished!"
