@@ -3285,3 +3285,5 @@ FROM users) AS anon_1]
            Details: OCR Pipeline API STARTED - Database initialized successfully
 1728     | 2026-02-23   | 11:48:21   | WARNING  | bcrypt._load_backend_mixin | (trapped) error reading bcrypt version  
            Exception: ['Traceback (most recent call last):\n', '  File "/home/habib-qanun/Projects/OCR_Pipeline/venv/lib/python3.12/site-packages/passlib/handlers/bcrypt.py", line 620, in _load_backend_mixin\n    version = _bcrypt.__about__.__version__\n              ^^^^^^^^^^^^^^^^^\n', "AttributeError: module 'bcrypt' has no attribute '__about__'\n"]
+1729     | 2026-02-23   | 15:16:12   | WARNING  | payment_service.process_payment_callback | [Callback] Unknown invoice: 3-5D51E33...
+           Details: [Callback] Unknown invoice: 3-5D51E33C8844
