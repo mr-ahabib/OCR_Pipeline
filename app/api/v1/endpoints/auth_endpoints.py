@@ -2,6 +2,7 @@
 from fastapi import APIRouter, Depends, status, Form
 from sqlalchemy.orm import Session
 from datetime import timedelta
+import logging
 
 from app.core.dependencies import get_db
 from app.services.auth_service import (
@@ -13,6 +14,8 @@ from app.services.auth_service import (
     get_password_hash,
     verify_password,
     get_or_create_google_user,
+    create_email_otp,
+    verify_email_otp,
 )
 from app.schemas.auth_schemas import (
     UserCreate,
@@ -20,6 +23,9 @@ from app.schemas.auth_schemas import (
     Token,
     PasswordChange,
     GoogleAuthRequest,
+    OTPRequest,
+    OTPVerifyRequest,
+    ResendOTPRequest,
 )
 from app.middleware.auth import get_current_active_user
 from app.models.user import User, UserRole
@@ -30,24 +36,117 @@ from app.errors.exceptions import (
     NotFoundException,
     BadRequestException
 )
+from app.utils.email import send_otp_email
 from google.oauth2 import id_token as google_id_token
 from google.auth.transport import requests as google_requests
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
-@router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/register", response_model=OTPRequest, status_code=status.HTTP_200_OK)
 async def register(user_data: UserCreate, db: Session = Depends(get_db)):
-    """Register a new user (role will be set to USER)"""
+    """
+    Start registration — validates the submitted data and sends a 6-digit OTP
+    to the user's email. The account is **not** created yet.
+
+    Call **/auth/verify-otp** with the code to complete registration and receive
+    an access token (auto-login).
+    """
     if get_user_by_username(db, user_data.username):
         raise ConflictException(detail="Username already registered")
-    
+
     if get_user_by_email(db, user_data.email):
         raise ConflictException(detail="Email already registered")
-    
+
     user_data.role = UserRole.USER
-    user = create_user(db, user_data)
-    return user
+    otp = create_email_otp(db, user_data.email, user_data.model_dump())
+
+    sent = send_otp_email(
+        to=user_data.email,
+        otp=otp,
+        full_name=user_data.full_name or "",
+    )
+    if not sent:
+        logger.warning(f"[Register] OTP email delivery failed for {user_data.email}")
+
+    return OTPRequest(
+        message="Verification code sent to your email. Please check your inbox and enter the 6-digit code to complete registration.",
+        email=user_data.email,
+    )
+
+
+@router.post("/verify-otp", response_model=Token, status_code=status.HTTP_201_CREATED)
+async def verify_otp(body: OTPVerifyRequest, db: Session = Depends(get_db)):
+    """
+    Verify the 6-digit OTP sent to the user's email.
+
+    On success the user account is created, marked as verified, and an access
+    token is returned so the client is immediately logged in.
+    """
+    try:
+        user_payload = verify_email_otp(db, body.email, body.otp)
+    except ValueError as exc:
+        raise BadRequestException(detail=str(exc))
+
+    if not user_payload:
+        raise BadRequestException(detail="OTP verification failed.")
+
+    # Double-check in case another request sneaked in
+    if get_user_by_email(db, body.email):
+        raise ConflictException(detail="An account with this email already exists. Please log in.")
+
+    from app.schemas.auth_schemas import UserCreate as UC
+    new_user = create_user(db, UC(**user_payload))
+
+    # Mark as verified immediately (OTP proves email ownership)
+    new_user.is_verified = True
+    db.commit()
+    db.refresh(new_user)
+
+    access_token = create_access_token(
+        data={
+            "sub": str(new_user.id),
+            "username": new_user.username,
+            "role": new_user.role.value,
+        },
+        expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),
+    )
+    return {"access_token": access_token, "token_type": "bearer", "user": new_user}
+
+
+@router.post("/resend-otp", response_model=OTPRequest, status_code=status.HTTP_200_OK)
+async def resend_otp(body: ResendOTPRequest, db: Session = Depends(get_db)):
+    """
+    Resend a fresh OTP to *email*.  Only works if the email is not yet registered.
+    The previously issued OTP is invalidated automatically.
+    """
+    from app.models.otp import EmailOTP
+    from app.models.otp import EmailOTP
+
+    if get_user_by_email(db, body.email):
+        raise ConflictException(detail="An account with this email already exists. Please log in.")
+
+    # Retrieve the pending user_data from the most recent OTP row
+    existing = (
+        db.query(EmailOTP)
+        .filter(EmailOTP.email == body.email)
+        .order_by(EmailOTP.created_at.desc())
+        .first()
+    )
+    if not existing:
+        raise NotFoundException(detail="No pending registration found for this email. Please register first.")
+
+    otp = create_email_otp(db, body.email, existing.user_data)
+    full_name = (existing.user_data or {}).get("full_name", "")
+    sent = send_otp_email(to=body.email, otp=otp, full_name=full_name)
+    if not sent:
+        logger.warning(f"[ResendOTP] Email delivery failed for {body.email}")
+
+    return OTPRequest(
+        message="A new verification code has been sent to your email.",
+        email=body.email,
+    )
 
 
 @router.post("/login", response_model=Token)

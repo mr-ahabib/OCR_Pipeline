@@ -19,6 +19,8 @@ from app.schemas.payment_schemas import (
     PaymentHistoryResponse,
     PaymentInitiateResponse,
 )
+from app.utils.invoice import generate_invoice_pdf
+from app.utils.email import send_invoice_email
 
 logger = logging.getLogger(__name__)
 
@@ -222,6 +224,29 @@ def process_payment_callback(
             f"pages_added={payment_row.pages_purchased} "
             f"new_total={user.subscription_pages_total}"
         )
+
+        # ── Send invoice email (non-blocking — failure must not affect callback) ──
+        try:
+            pdf_bytes = generate_invoice_pdf(
+                invoice_number=invoice_number,
+                user_full_name=user.full_name or user.username,
+                user_email=user.email,
+                pages_purchased=payment_row.pages_purchased,
+                payment_amount=payment_row.payment_amount,
+                currency=payment_row.currency or "BDT",
+                paid_at=payment_row.paid_at,
+            )
+            send_invoice_email(
+                to=user.email,
+                full_name=user.full_name or user.username,
+                invoice_pdf_bytes=pdf_bytes,
+                invoice_number=invoice_number,
+            )
+        except Exception as email_exc:
+            logger.error(
+                f"[Callback] Invoice email failed for {invoice_number}: {email_exc}"
+            )
+
         return {"success": True, "message": "Payment confirmed and subscription activated"}
 
     except Exception as exc:

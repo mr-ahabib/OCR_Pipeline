@@ -69,5 +69,15 @@ class Settings:
     SUPER_ADMIN_PASSWORD = os.getenv("SUPER_ADMIN_PASSWORD", "SuperSecure@Admin123!")
     SUPER_ADMIN_FULL_NAME = os.getenv("SUPER_ADMIN_FULL_NAME", "Super Administrator")
 
+    # SMTP / Email configuration
+    SMTP_HOST = os.getenv("SMTP_HOST", "smtp.maileroo.com")
+    SMTP_PORT = int(os.getenv("SMTP_PORT", 587))
+    SMTP_USER = os.getenv("SMTP_USER", "")
+    SMTP_PASS = os.getenv("SMTP_PASS", "")
+    EMAIL_FROM = os.getenv("EMAIL_FROM", "noreply@doceanai.cloud")
+
+    # OTP expiry (minutes)
+    OTP_EXPIRE_MINUTES = int(os.getenv("OTP_EXPIRE_MINUTES", 10))
+
 
 settings = Settings()

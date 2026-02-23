@@ -1,10 +1,13 @@
 """Authentication service with password hashing and JWT"""
 from datetime import datetime, timedelta
 from typing import Optional
+import random
+import string
 from passlib.context import CryptContext
 from jose import JWTError, jwt
 from sqlalchemy.orm import Session
 from app.models.user import User, UserRole
+from app.models.otp import EmailOTP
 from app.schemas.auth_schemas import UserCreate, TokenData
 from app.core.config import settings
 import re
@@ -184,3 +187,73 @@ def get_or_create_google_user(db: Session, google_id: str, email: str, full_name
     db.commit()
     db.refresh(new_user)
     return new_user
+
+
+# ── OTP helpers ───────────────────────────────────────────────────────────────
+
+def generate_otp() -> str:
+    """Return a cryptographically random 6-digit numeric OTP."""
+    return "".join(random.choices(string.digits, k=6))
+
+
+def create_email_otp(db: Session, email: str, user_data: dict) -> str:
+    """
+    Invalidate any existing unused OTPs for *email*, create a fresh one,
+    persist it, and return the plain-text OTP code.
+
+    *user_data* is the dict representation of the pending UserCreate payload.
+    """
+    # Mark previous OTPs for this email as used so only the latest is valid
+    db.query(EmailOTP).filter(
+        EmailOTP.email == email,
+        EmailOTP.is_used == False,  # noqa: E712
+    ).update({"is_used": True})
+
+    otp_code = generate_otp()
+    expires_at = datetime.utcnow() + timedelta(minutes=settings.OTP_EXPIRE_MINUTES)
+
+    otp_row = EmailOTP(
+        email=email,
+        otp_code=otp_code,
+        user_data=user_data,
+        expires_at=expires_at,
+        is_used=False,
+    )
+    db.add(otp_row)
+    db.commit()
+    return otp_code
+
+
+def verify_email_otp(db: Session, email: str, otp_code: str) -> Optional[dict]:
+    """
+    Verify *otp_code* for *email*.
+
+    Returns the stored *user_data* dict on success, or raises ValueError with
+    a descriptive message on failure. Marks the OTP as used immediately.
+    """
+    otp_row: Optional[EmailOTP] = (
+        db.query(EmailOTP)
+        .filter(
+            EmailOTP.email == email,
+            EmailOTP.is_used == False,  # noqa: E712
+        )
+        .order_by(EmailOTP.created_at.desc())
+        .first()
+    )
+
+    if otp_row is None:
+        raise ValueError("No active OTP found for this email. Please request a new one.")
+
+    if datetime.utcnow() > otp_row.expires_at:
+        otp_row.is_used = True
+        db.commit()
+        raise ValueError("OTP has expired. Please request a new one.")
+
+    if otp_row.otp_code != otp_code.strip():
+        raise ValueError("Invalid OTP code.")
+
+    # Mark as used
+    otp_row.is_used = True
+    db.commit()
+
+    return otp_row.user_data

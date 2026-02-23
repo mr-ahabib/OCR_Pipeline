@@ -24,7 +24,7 @@ def upgrade() -> None:
     op.create_index(op.f('ix_users_google_id'), 'users', ['google_id'], unique=True)
 
     # Add auth_provider column (default = 'local')
-    op.add_column('users', sa.Column('auth_provider', sa.String(50), nullable=False, server_default='local'))
+    op.add_column('users', sa.Column('auth_provider', sa.String(50), nullable=True, server_default='local'))
 
     # Make hashed_password nullable (OAuth users may not have a password)
     op.alter_column('users', 'hashed_password', existing_type=sa.String(255), nullable=True)

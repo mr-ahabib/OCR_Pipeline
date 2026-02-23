@@ -3,7 +3,7 @@ name: Deploy FastAPI OCR_Pipeline
 on:
   push:
     branches:
-      - main  # Auto deploy on main branch
+      - master  # Auto deploy on main branch
 
 jobs:
   deploy:
@@ -19,7 +19,7 @@ jobs:
           script: |
             cd ~/OCR_Pipeline
             git reset --hard
-            git pull origin main
+            git pull origin master
             source venv/bin/activate
             pip install -r requirements.txt
             alembic upgrade head

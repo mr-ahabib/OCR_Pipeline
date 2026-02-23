@@ -1,14 +1,18 @@
 """OCR service — Google Document AI, pipelined batch conversion + parallel dispatch.
 
-Speed strategy for PDFs:
-  1. Convert pages in batches of CONVERT_BATCH (8) using pdf2image at 200 DPI.
-  2. Each batch is dispatched to DocAI IMMEDIATELY as it finishes converting,
-     so DocAI processes pages 1-8 while pages 9-16 are still being converted.
-  3. Up to MAX_PARALLEL (32) DocAI requests run concurrently.
+Speed + accuracy strategy for PDFs:
+  1. Convert pages at 300 DPI (grayscale) using pdf2image.
+     Grayscale at 300 DPI is ~3× smaller than RGB, so DocAI uploads stay fast
+     while the extra resolution significantly improves character recognition
+     (especially for complex scripts like Bangla).
+  2. Batches of CONVERT_BATCH (4) pages are dispatched to DocAI IMMEDIATELY
+     as each batch finishes converting — smaller batches mean DocAI starts
+     sooner and pipelining overlap is tighter.
+  3. Up to MAX_PARALLEL (50) DocAI requests run concurrently.
 
 Pipeline overlap for 46 pages:
-  Batch 1 (p1-8)  → convert → dispatch ──────────────────► DocAI
-  Batch 2 (p9-16) → convert ──────────────────────────────► DocAI  (overlap!)
+  Batch 1 (p1-4)  → convert → dispatch ──────────────────► DocAI
+  Batch 2 (p5-8)  → convert ──────────────────────────────► DocAI  (overlap!)
   Batch 3 ...
   Total ≈ max(conversion_time, docai_time)  instead of  sum(both)
 """
@@ -31,23 +35,23 @@ from app.utils.pdf_utils import count_pdf_pages
 setup_file_logging(logging.INFO)
 logger = logging.getLogger(__name__)
 
-# DPI for PDF → image conversion. 200 DPI gives good OCR quality while keeping
-# JPEG sizes small enough for fast DocAI uploads (~80-150 KB/page).
-PDF_DPI = int(os.getenv("OCR_PDF_DPI", 200))
+# DPI for PDF → image conversion.
+# 300 DPI is the standard high-accuracy DPI for OCR — essential for complex
+# scripts like Bangla. Grayscale mode (below) offsets the larger file size so
+# uploads to DocAI remain fast (~60-120 KB/page as grayscale JPEG).
+PDF_DPI = int(os.getenv("OCR_PDF_DPI", 300))
 
-# Max concurrent DocAI requests.  32 concurrent single-image requests keep
-# the pipeline saturated without hitting quota limits.
-MAX_PARALLEL = int(os.getenv("OCR_MAX_PARALLEL_PAGES", 32))
+# Max concurrent DocAI requests.  50 concurrent requests keep the pipeline
+# fully saturated at higher DPI without hitting quota limits.
+MAX_PARALLEL = int(os.getenv("OCR_MAX_PARALLEL_PAGES", 50))
 
-# Pages per conversion batch.  Each batch is converted then immediately
-# dispatched to DocAI, overlapping conversion with network I/O.
-CONVERT_BATCH = int(os.getenv("OCR_CONVERT_BATCH", 8))
+# Pages per conversion batch.  Smaller batches (4) dispatch to DocAI sooner,
+# maximising pipeline overlap between conversion and network I/O.
+CONVERT_BATCH = int(os.getenv("OCR_CONVERT_BATCH", 4))
 
-# Thread-pool: used for both pdf2image conversion AND DocAI calls (blocking I/O).
-_EXECUTOR = ThreadPoolExecutor(max_workers=int(os.getenv("OCR_MAX_CONVERSION_THREADS", 6)))
-
-
-# ── helpers ───────────────────────────────────────────────────────────────────
+# Thread-pool: use all available CPU cores for conversion; cap at 16.
+_CONVERSION_THREADS = int(os.getenv("OCR_MAX_CONVERSION_THREADS", min(os.cpu_count() or 8, 16)))
+_EXECUTOR = ThreadPoolExecutor(max_workers=_CONVERSION_THREADS)
 
 def detect_file_type(file_bytes: bytes) -> str:
     """Detect file type based on magic bytes. Returns 'pdf', 'image', or 'unknown'."""
@@ -79,17 +83,17 @@ def _convert_page_range(pdf_bytes: bytes, first_page: int, last_page: int) -> Li
         pdf_bytes,
         dpi=PDF_DPI,
         fmt="jpeg",
-        grayscale=False,
+        grayscale=True,   # Grayscale at 300 DPI ≈ same file size as RGB at 150 DPI
         first_page=first_page,
         last_page=last_page,
-        thread_count=int(os.getenv("OCR_MAX_CONVERSION_THREADS", 6)),
+        thread_count=_CONVERSION_THREADS,
         use_pdftocairo=True,
         strict=False,
     )
     jpeg_list = []
     for img in images:
         if img.mode not in ("RGB", "L"):
-            img = img.convert("RGB")
+            img = img.convert("L")  # keep grayscale
         buf = io.BytesIO()
         img.save(buf, format="JPEG", quality=85, optimize=True)
         jpeg_list.append(buf.getvalue())
@@ -102,8 +106,6 @@ def _count_pdf_pages(pdf_bytes: bytes) -> int:
     with pikepdf.open(io.BytesIO(pdf_bytes)) as pdf:
         return len(pdf.pages)
 
-
-# ── async workers ─────────────────────────────────────────────────────────────
 
 async def _process_page(page_num: int, jpeg_bytes: bytes, sem: asyncio.Semaphore) -> dict:
     """Send one JPEG page to DocAI inside a semaphore slot."""
@@ -145,14 +147,11 @@ async def _pipeline_pdf(pdf_bytes: bytes, total_pages: int) -> List[dict]:
     results.sort(key=lambda p: p["page_number"])
     return results
 
-
-# ── main entry point ──────────────────────────────────────────────────────────
-
 async def process_file(file_bytes: bytes, langs: list, mode: str = "english"):
     """
     Process a file with Google Document AI.
 
-    PDF  → pipeline: convert batches of 8 pages → dispatch immediately to DocAI
+    PDF  → pipeline: convert batches of 4 pages (grayscale 300 DPI) → dispatch immediately to DocAI
     Image → single DocAI image request
 
     Returns a structured result dict compatible with all existing endpoints.
@@ -169,7 +168,6 @@ async def process_file(file_bytes: bytes, langs: list, mode: str = "english"):
         ENGINE = "Google Document AI"
         FEATURES = ["Native cloud OCR", "Automatic language detection", "Per-page extraction"]
 
-        # ── PDF ───────────────────────────────────────────────────────────────
         if file_type == 'pdf':
             loop = asyncio.get_running_loop()
             total_pages: int = await loop.run_in_executor(_EXECUTOR, _count_pdf_pages, file_bytes)
@@ -182,7 +180,6 @@ async def process_file(file_bytes: bytes, langs: list, mode: str = "english"):
             confs = [p["confidence"] for p in all_pages]
             avg_conf = sum(confs) / len(confs) if confs else 0.0
 
-        # ── IMAGE ─────────────────────────────────────────────────────────────
         else:
             if file_type == 'unknown':
                 logger.warning("Unknown file type — attempting to process as image")
@@ -199,13 +196,11 @@ async def process_file(file_bytes: bytes, langs: list, mode: str = "english"):
             confs = [conf]
             avg_conf = conf
 
-        # ── logging ───────────────────────────────────────────────────────────
         processing_time = time.time() - start_time
         if avg_conf < 80:
             logger.warning(f"LOW CONFIDENCE: {avg_conf:.2f}%")
         logger.info(f"OCR done: {len(all_pages)} pages in {processing_time:.1f}s (avg conf {avg_conf:.1f}%)")
 
-        # ── build response ────────────────────────────────────────────────────
         if len(all_pages) == 1:
             result = {
                 "text": texts[0] if texts else "",

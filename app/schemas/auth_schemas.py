@@ -95,3 +95,20 @@ class PasswordChange(BaseModel):
         if not any(char.islower() for char in v):
             raise ValueError('Password must contain at least one lowercase letter')
         return v
+
+
+class OTPRequest(BaseModel):
+    """Response returned when an OTP email has been dispatched."""
+    message: str
+    email: str
+
+
+class OTPVerifyRequest(BaseModel):
+    """Payload for the /auth/verify-otp endpoint."""
+    email: EmailStr
+    otp: str = Field(..., min_length=6, max_length=6, description="6-digit OTP code")
+
+
+class ResendOTPRequest(BaseModel):
+    """Payload for the /auth/resend-otp endpoint."""
+    email: EmailStr

@@ -9,13 +9,14 @@ from app.services.ocr_service import process_file, detect_file_type
 from app.services.ocr_crud import create_ocr_document
 from app.services.free_trial_service import (
     generate_device_fingerprint,
-    update_cookie_consent
+    update_cookie_consent,
+    check_and_increment_usage,
 )
 from app.utils.logger import log_ocr_operation
 from app.utils.file_storage import save_uploaded_file
 from app.utils.pdf_utils import count_pdf_pages
 from app.services.subscription_service import check_and_consume_quota, get_subscription_status
-from app.middleware.auth import require_user, require_user_or_trial
+from app.middleware.auth import require_user, require_user_or_trial, get_user_or_trial
 from app.models.user import User
 from app.models.free_trial_user import FreeTrialUser
 from app.schemas.ocr_schemas import (
@@ -24,6 +25,7 @@ from app.schemas.ocr_schemas import (
 )
 from app.schemas.free_trial_schemas import CookieConsentRequest
 from app.core.dependencies import get_db
+from app.errors.exceptions import ForbiddenException
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -194,6 +196,17 @@ async def ocr_page_by_page(
         else:
             pages_in_file = 1
 
+        # Authenticated users on free tier: 1 page max per request
+        if current_user.free_ocr_remaining > 0 and pages_in_file > 1:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Free tier allows only 1 page per request. "
+                    f"Your PDF has {pages_in_file} pages. "
+                    f"Subscribe to process multi-page documents."
+                )
+            )
+
         try:
             check_and_consume_quota(db, current_user, pages_in_file)
         except ValueError as quota_err:
@@ -252,28 +265,30 @@ async def ocr_free_trial(
     request_start_time = time.time()
     
     try:
-        user_or_trial, trial_info, cookie_to_set, needs_cookie_consent = await require_user_or_trial(
+        # Step 1: identify caller WITHOUT incrementing the trial counter yet.
+        # This lets us validate page count before consuming a free attempt.
+        user_or_trial, cookie_to_set, needs_cookie_consent = await get_user_or_trial(
             request=request,
             token=None,
             db=db
         )
-        
+
         is_registered = isinstance(user_or_trial, User)
         user_id = user_or_trial.id if is_registered else None
-        
+
         langs = OCR_MODES.get(mode, ["en"])
         content = await file.read()
-        
+
         if len(content) == 0:
             logger.error(f"EMPTY FILE uploaded: {file.filename}")
             raise HTTPException(status_code=400, detail="Empty file uploaded")
-        
+
         max_file_size = 50 * 1024 * 1024 if is_registered else 10 * 1024 * 1024
         if len(content) > max_file_size:
             size_limit = "50MB" if is_registered else "10MB"
             logger.error(f"FILE TOO LARGE: {file.filename} ({len(content)//1024//1024}MB)")
             raise HTTPException(
-                status_code=413, 
+                status_code=413,
                 detail=f"File too large (max {size_limit} for {'registered users' if is_registered else 'free trial'})"
             )
 
@@ -282,35 +297,47 @@ async def ocr_free_trial(
         if file_type == 'unknown':
             logger.error(f"UNSUPPORTED FILE TYPE: {file.filename} - Content-Type: {file.content_type}")
             raise HTTPException(
-                status_code=415, 
+                status_code=415,
                 detail="Unsupported file format. Please upload PDF, JPEG, PNG, GIF, BMP, WebP, or TIFF files."
             )
 
-        FREE_TRIAL_MAX_PAGES = 3
-        if not is_registered and file_type == 'pdf':
+        # ── Page-count check (1 page max per request on free tier / free trial) ──
+        # Done BEFORE consuming any quota/trial so rejections don't waste credits.
+        if file_type == 'pdf':
             try:
-                page_count = count_pdf_pages(content)
-                if page_count > FREE_TRIAL_MAX_PAGES:
-                    raise HTTPException(
-                        status_code=400,
-                        detail=f"Free trial is limited to {FREE_TRIAL_MAX_PAGES} pages. "
-                               f"Your PDF has {page_count} pages. "
-                               f"Please register for an account to process larger documents."
-                    )
-            except HTTPException:
-                raise
-            except Exception as e:
-                logger.warning(f"Could not count PDF pages for trial check: {e}")
-
-        if is_registered:
-            if file_type == 'pdf':
-                try:
-                    pages_in_file = count_pdf_pages(content)
-                except Exception:
-                    pages_in_file = 1
-            else:
+                pages_in_file = count_pdf_pages(content)
+            except Exception:
                 pages_in_file = 1
+        else:
+            pages_in_file = 1
 
+        if not is_registered:
+            # Free trial user: block multi-page PDFs
+            if pages_in_file > 1:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"Free trial allows only 1 page per request. "
+                        f"Your PDF has {pages_in_file} pages. "
+                        f"Please register for an account to process larger documents."
+                    )
+                )
+            # Now it is safe to increment the trial counter
+            trial_info = check_and_increment_usage(db, user_or_trial)
+            if not trial_info["allowed"]:
+                raise ForbiddenException(detail=trial_info["message"])
+        else:
+            trial_info = None
+            # Registered users on free tier: 1 page max per request
+            if user_or_trial.free_ocr_remaining > 0 and pages_in_file > 1:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"Free tier allows only 1 page per request. "
+                        f"Your PDF has {pages_in_file} pages. "
+                        f"Subscribe to process multi-page documents."
+                    )
+                )
             try:
                 check_and_consume_quota(db, user_or_trial, pages_in_file)
             except ValueError as quota_err:
