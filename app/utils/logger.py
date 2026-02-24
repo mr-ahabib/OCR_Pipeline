@@ -2,159 +2,229 @@ import logging
 import os
 from datetime import datetime
 from pathlib import Path
+from typing import Optional
+
+
+# ── column widths ─────────────────────────────────────────────────────────────
+_W_SERIAL  = 6
+_W_DATE    = 12
+_W_TIME    = 10
+_W_LEVEL   = 8
+_W_UID     = 8
+_W_EMAIL   = 28
+_W_MODULE  = 25
+_W_EVENT   = 40
+_SEP       = " | "
+# Total ≈ 6+12+10+8+8+28+25+40 + 7*(3) = 158 chars
 
 
 class StructuredFileHandler(logging.FileHandler):
-    """Custom file handler that writes logs with structured headers to logs.txt"""
-    
-    def __init__(self, log_file_path):
-        super().__init__(log_file_path, mode='a', encoding='utf-8')
+    """Custom file handler that writes logs with structured, human-readable
+    columns to logs.txt.
+
+    Column layout:
+        Serial | Date | Time | Level | User ID | User Email | Module/Function | Event
+    """
+
+    def __init__(self, log_file_path: str):
+        super().__init__(log_file_path, mode="a", encoding="utf-8")
         self.log_counter = self._get_next_serial_number()
         self._ensure_header_exists()
-    
-    def _get_next_serial_number(self):
-        """Get the next serial number for logs"""
+
+    # ── helpers ───────────────────────────────────────────────────────────────
+
+    def _get_next_serial_number(self) -> int:
         try:
             if os.path.exists(self.baseFilename) and os.path.getsize(self.baseFilename) > 0:
-                with open(self.baseFilename, 'r', encoding='utf-8') as f:
-                    lines = f.readlines()
-                    # Find the last serial number
-                    for line in reversed(lines):
-                        if line.strip() and not line.startswith('-') and not line.startswith('|'):
-                            try:
-                                # Split and get the first field which should be the serial
-                                parts = line.split('|')
-                                if len(parts) > 0:
-                                    serial_str = parts[0].strip()
-                                    if serial_str.isdigit():
-                                        return int(serial_str) + 1
-                            except:
-                                continue
-                    return 1
-            else:
-                return 1
-        except:
+                with open(self.baseFilename, "r", encoding="utf-8") as f:
+                    for line in reversed(f.readlines()):
+                        parts = line.split(_SEP)
+                        if parts and parts[0].strip().isdigit():
+                            return int(parts[0].strip()) + 1
             return 1
-    
+        except Exception:
+            return 1
+
     def _ensure_header_exists(self):
-        """Ensure the log file has proper headers for important events only"""
         try:
             if not os.path.exists(self.baseFilename) or os.path.getsize(self.baseFilename) == 0:
-                with open(self.baseFilename, 'w', encoding='utf-8') as f:
-                    f.write("=" * 120 + "\n")
-                    f.write(f"{'OCR PIPELINE - IMPORTANT EVENTS LOG':^120}\n")
-                    f.write("=" * 120 + "\n")
-                    f.write(f"{'Serial':<8} | {'Date':<12} | {'Time':<10} | {'Level':<8} | {'Module/Function':<25} | {'Event/Error':<40}\n")
-                    f.write("-" * 120 + "\n")
-        except Exception as e:
-            # Fallback - create simple header
+                total_width = (
+                    _W_SERIAL + _W_DATE + _W_TIME + _W_LEVEL
+                    + _W_UID + _W_EMAIL + _W_MODULE + _W_EVENT
+                    + len(_SEP) * 7
+                )
+                with open(self.baseFilename, "w", encoding="utf-8") as f:
+                    f.write("=" * total_width + "\n")
+                    f.write(f"{'OCR PIPELINE — OPERATION LOG':^{total_width}}\n")
+                    f.write("=" * total_width + "\n")
+                    header = (
+                        f"{'#':<{_W_SERIAL}}"
+                        f"{_SEP}{'Date':<{_W_DATE}}"
+                        f"{_SEP}{'Time':<{_W_TIME}}"
+                        f"{_SEP}{'Level':<{_W_LEVEL}}"
+                        f"{_SEP}{'User ID':<{_W_UID}}"
+                        f"{_SEP}{'User Email':<{_W_EMAIL}}"
+                        f"{_SEP}{'Module/Function':<{_W_MODULE}}"
+                        f"{_SEP}{'Event':<{_W_EVENT}}"
+                    )
+                    f.write(header + "\n")
+                    f.write("-" * total_width + "\n")
+        except Exception:
             pass
-    
-    def emit(self, record):
-        """Custom emit method to format log records with structured headers"""
+
+    # ── emit ──────────────────────────────────────────────────────────────────
+
+    def emit(self, record: logging.LogRecord):
         try:
-            # Format the timestamp
             dt = datetime.fromtimestamp(record.created)
-            date_str = dt.strftime('%Y-%m-%d')
-            time_str = dt.strftime('%H:%M:%S')
-            
-            # Get module/function info
-            module_func = f"{record.module}.{record.funcName}" if hasattr(record, 'funcName') else record.module
-            
-            # Truncate long messages for the main log, full message goes to details
+            date_str = dt.strftime("%Y-%m-%d")
+            time_str = dt.strftime("%H:%M:%S")
+
+            module_func = (
+                f"{record.module}.{record.funcName}"
+                if hasattr(record, "funcName") else record.module
+            )
+
+            # User context (set via extra={} on the logger call, or "-" if absent)
+            uid   = str(getattr(record, "user_id",    "-") or "-")
+            email = str(getattr(record, "user_email", "-") or "-")
+
             message_preview = record.getMessage()
-            if len(message_preview) > 40:
-                message_preview = message_preview[:37] + "..."
-            
-            # Create structured log entry
-            log_entry = f"{self.log_counter:<8} | {date_str:<12} | {time_str:<10} | {record.levelname:<8} | {module_func:<25} | {message_preview:<40}\n"
-            
-            # Write to file
-            with open(self.baseFilename, 'a', encoding='utf-8') as f:
-                f.write(log_entry)
-                
-                # If it's an error or warning, add detailed info
-                if record.levelname in ['ERROR', 'WARNING', 'CRITICAL']:
-                    full_message = record.getMessage()
-                    if len(full_message) > 40:
-                        f.write(f"{'':>8}   Details: {full_message}\n")
-                    
-                    # Add exception info if present
+            if len(message_preview) > _W_EVENT:
+                message_preview = message_preview[:_W_EVENT - 3] + "..."
+
+            line = (
+                f"{self.log_counter:<{_W_SERIAL}}"
+                f"{_SEP}{date_str:<{_W_DATE}}"
+                f"{_SEP}{time_str:<{_W_TIME}}"
+                f"{_SEP}{record.levelname:<{_W_LEVEL}}"
+                f"{_SEP}{uid:<{_W_UID}}"
+                f"{_SEP}{email:<{_W_EMAIL}}"
+                f"{_SEP}{module_func:<{_W_MODULE}}"
+                f"{_SEP}{message_preview:<{_W_EVENT}}"
+            )
+
+            with open(self.baseFilename, "a", encoding="utf-8") as f:
+                f.write(line + "\n")
+
+                # Full message on the next line for errors/warnings
+                if record.levelname in ("ERROR", "WARNING", "CRITICAL"):
+                    full_msg = record.getMessage()
+                    if len(full_msg) > _W_EVENT:
+                        indent = " " * (_W_SERIAL + len(_SEP))
+                        f.write(f"{indent}Details: {full_msg}\n")
+
                     if record.exc_info:
                         import traceback
-                        f.write(f"{'':>8}   Exception: {traceback.format_exception(*record.exc_info)}\n")
-                
-                # Add separator for readability
-                if record.levelname in ['ERROR', 'CRITICAL']:
-                    f.write("-" * 120 + "\n")
-            
+                        indent = " " * (_W_SERIAL + len(_SEP))
+                        tb = "".join(traceback.format_exception(*record.exc_info))
+                        f.write(f"{indent}Exception: {tb}\n")
+
+                if record.levelname in ("ERROR", "CRITICAL"):
+                    total_width = (
+                        _W_SERIAL + _W_DATE + _W_TIME + _W_LEVEL
+                        + _W_UID + _W_EMAIL + _W_MODULE + _W_EVENT
+                        + len(_SEP) * 7
+                    )
+                    f.write("-" * total_width + "\n")
+
             self.log_counter += 1
-            
         except Exception:
-            # Fallback to standard file handler
             super().emit(record)
 
 
-def setup_file_logging(log_level=logging.WARNING):
-    """Set up structured file logging for important events only"""
-    
-    # Create logs directory if it doesn't exist
+# ── setup ─────────────────────────────────────────────────────────────────────
+
+def setup_file_logging(log_level: int = logging.WARNING) -> logging.Logger:
+    """Configure structured file + console logging.
+
+    File handler records WARNING and above (to reduce noise).
+    Console handler uses *log_level* (INFO by default when called from service).
+    """
     log_dir = Path(__file__).parent.parent / "logs"
     log_dir.mkdir(exist_ok=True)
-    
     log_file_path = log_dir / "logs.txt"
-    
-    # Create custom handler for important logs only
+
     file_handler = StructuredFileHandler(str(log_file_path))
-    file_handler.setLevel(logging.WARNING)  # Only WARNING and above go to file
-    
-    # Create console handler for immediate feedback (can be more verbose)
+    file_handler.setLevel(logging.WARNING)
+
     console_handler = logging.StreamHandler()
     console_handler.setLevel(log_level)
-    
-    # Create formatters
-    file_formatter = logging.Formatter('%(message)s')  # Custom handler handles formatting
-    console_formatter = logging.Formatter('%(asctime)s | %(levelname)s | %(message)s')
-    
-    file_handler.setFormatter(file_formatter)
-    console_handler.setFormatter(console_formatter)
-    
-    # Configure root logger
-    logging.basicConfig(
-        level=log_level,
-        handlers=[file_handler, console_handler],
-        force=True  # Override existing configuration
+
+    file_handler.setFormatter(logging.Formatter("%(message)s"))
+    console_handler.setFormatter(
+        logging.Formatter("%(asctime)s | %(levelname)s | %(message)s")
     )
-    
-    # Log session start as important event
+
+    logging.basicConfig(level=log_level, handlers=[file_handler, console_handler], force=True)
+
     logger = logging.getLogger(__name__)
-    logger.warning(f"OCR Pipeline SESSION STARTED at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    
+    logger.warning("OCR Pipeline SESSION STARTED at %s", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
     return logger
 
 
-def log_ocr_operation(operation_type, file_info, result=None, error=None):
-    """Log important OCR operations only"""
-    logger = logging.getLogger('ocr_operations')
-    
+# ── helpers for callers ───────────────────────────────────────────────────────
+
+def log_ocr_operation(
+    operation_type: str,
+    file_info: str,
+    result: Optional[dict] = None,
+    error: Optional[str] = None,
+    user_id: Optional[int] = None,
+    user_email: Optional[str] = None,
+):
+    """Log an OCR operation with user context (id + email).
+
+    Only failures and low-confidence results trigger a file write
+    (WARNING/ERROR level) to keep the log readable.
+    """
+    _log = logging.getLogger("ocr_operations")
+    extra = {"user_id": user_id or "-", "user_email": user_email or "-"}
+
     if error:
-        logger.error(f"OCR {operation_type} FAILED - File: {file_info} - Error: {error}")
-    else:
-        confidence = result.get('confidence', 0) if result else 0
-        pages = result.get('pages', 1) if result else 1
-        # Only log low confidence results or failures as important
+        _log.error(
+            "OCR %s FAILED — File: %s — Error: %s",
+            operation_type, file_info, error,
+            extra=extra,
+        )
+        return
+
+    if result:
+        confidence = result.get("confidence", 0)
+        pages      = result.get("pages", 1)
+        engine     = result.get("engine", "unknown")
         if confidence < 80:
-            logger.warning(f"OCR {operation_type} LOW CONFIDENCE - File: {file_info} - Pages: {pages} - Confidence: {confidence:.2f}%")
-        # Don't log successful high-confidence operations to reduce log noise
+            _log.warning(
+                "OCR %s LOW CONFIDENCE — Engine: %s — File: %s — Pages: %s — Conf: %.2f%%",
+                operation_type, engine, file_info, pages, confidence,
+                extra=extra,
+            )
+        else:
+            # Always log successful OCR to track activity per user
+            _log.warning(
+                "OCR %s OK — Engine: %s — File: %s — Pages: %s — Conf: %.2f%%",
+                operation_type, engine, file_info, pages, confidence,
+                extra=extra,
+            )
 
 
-def log_performance_metrics(operation, duration, pages=1, file_size=None):
-    """Log performance issues only (slow operations)"""
-    logger = logging.getLogger('performance')
-    
-    # Only log if operation is taking too long (performance issue)
-    threshold = 10.0 if pages > 3 else 5.0  # Adjust threshold based on page count
-    
+def log_performance_metrics(
+    operation: str,
+    duration: float,
+    pages: int = 1,
+    file_size: Optional[int] = None,
+    user_id: Optional[int] = None,
+    user_email: Optional[str] = None,
+):
+    """Log slow operations to the structured log file."""
+    _log = logging.getLogger("performance")
+    extra = {"user_id": user_id or "-", "user_email": user_email or "-"}
+
+    threshold = 10.0 if pages > 3 else 5.0
     if duration > threshold:
-        size_info = f"Size: {file_size//1024}KB" if file_size else ""
-        logger.warning(f"SLOW PERFORMANCE - {operation} - Duration: {duration:.2f}s - Pages: {pages} {size_info}")
+        size_info = f"Size: {file_size // 1024}KB" if file_size else ""
+        _log.warning(
+            "SLOW — %s — Duration: %.2fs — Pages: %s %s",
+            operation, duration, pages, size_info,
+            extra=extra,
+        )

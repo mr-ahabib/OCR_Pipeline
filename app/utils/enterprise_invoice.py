@@ -1,7 +1,6 @@
 """Enterprise invoice PDF generator - uses fpdf2 (already in requirements.txt)."""
 from __future__ import annotations
 
-import io
 from datetime import date, datetime
 from typing import Optional
 
@@ -233,6 +232,4 @@ def generate_enterprise_invoice_pdf(
     pdf.set_x(14)
     pdf.cell(182, 8, "DoceanAI  |  accounts@doceanai.cloud  |  doceanai.cloud", align="C")
 
-    buf = io.BytesIO()
-    pdf.output(buf)
-    return buf.getvalue()
+    return pdf.output()

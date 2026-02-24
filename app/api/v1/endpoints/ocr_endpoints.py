@@ -5,7 +5,7 @@ import time
 from typing import Literal, Dict, Any, List, Optional
 from sqlalchemy.orm import Session
 
-from app.services.ocr_service import process_file, detect_file_type
+from app.services.ocr_service import process_file, process_file_auto, detect_file_type, select_ocr_engine
 from app.services.ocr_crud import create_ocr_document
 from app.services.free_trial_service import (
     generate_device_fingerprint,
@@ -265,13 +265,27 @@ async def ocr_page_by_page(
                 },
             )
 
-        result = await process_file(content, langs, mode=mode)
-        
+        engine_choice = select_ocr_engine(current_user)
+        logger.info(
+            f"OCR engine: {engine_choice.upper()} | user_id={current_user.id} "
+            f"email={current_user.email} role={current_user.role}"
+        )
+        result = await process_file_auto(
+            content, langs, mode=mode,
+            user=current_user,
+            user_id=current_user.id,
+            user_email=current_user.email,
+        )
+
         request_duration = time.time() - request_start_time
-        
+
         if result['confidence'] < 80 or request_duration > 10.0:
-            logger.warning(f"OCR CONCERN - File: {file.filename} ({file_type}) - Duration: {request_duration:.2f}s - Confidence: {result['confidence']:.2f}%")
-        
+            logger.warning(
+                f"OCR CONCERN [{engine_choice.upper()}] — user_id={current_user.id} "
+                f"email={current_user.email} — File: {file.filename} ({file_type}) — "
+                f"Duration: {request_duration:.2f}s — Confidence: {result['confidence']:.2f}%"
+            )
+
         if save_to_db:
             save_to_database(db, current_user.id, file.filename, content, file_type, len(content), result, request_duration)
 
@@ -444,15 +458,28 @@ async def ocr_free_trial(
                     },
                 )
 
-        result = await process_file(content, langs, mode=mode)
-        
+        user_email_for_log = getattr(user_or_trial, 'email', None)
+        engine_choice = select_ocr_engine(user_or_trial if is_registered else None)
+        logger.info(
+            f"OCR engine: {engine_choice.upper()} | user_id={user_id} "
+            f"email={user_email_for_log} registered={is_registered}"
+        )
+        result = await process_file_auto(
+            content, langs, mode=mode,
+            user=user_or_trial if is_registered else None,
+            user_id=user_id,
+            user_email=user_email_for_log,
+        )
+
         request_duration = time.time() - request_start_time
-        
+
         user_type = "registered" if is_registered else "trial"
         if result['confidence'] < 80 or request_duration > 10.0:
             logger.warning(
-                f"OCR CONCERN ({user_type}) - File: {file.filename} ({file_type}) - "
-                f"Duration: {request_duration:.2f}s - Confidence: {result['confidence']:.2f}%"
+                f"OCR CONCERN [{engine_choice.upper()}] ({user_type}) — "
+                f"user_id={user_id} email={user_email_for_log} — "
+                f"File: {file.filename} ({file_type}) — "
+                f"Duration: {request_duration:.2f}s — Confidence: {result['confidence']:.2f}%"
             )
         
         if is_registered:
