@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Literal, Optional
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form
 from fastapi.responses import Response
@@ -43,8 +43,6 @@ from app.models.user import User
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
-
-OCR_MODES = {"bangla": ["bn"], "english": ["en"], "mixed": ["bn", "en"]}
 
 
 def _is_super(user: User) -> bool:
@@ -361,7 +359,6 @@ async def download_invoice(
 async def enterprise_ocr(
     enterprise_id: int,
     file:  UploadFile = File(...),
-    mode:  Literal["bangla", "english", "mixed"] = Form("english"),
     current_user: User    = Depends(require_admin),
     db:           Session = Depends(get_db),
 ):
@@ -380,7 +377,6 @@ async def enterprise_ocr(
     | Field | Type   | Default | Description                                       |
     |-------|--------|---------|---------------------------------------------------|
     | file  | file   | —       | Document (PDF / JPEG / PNG / TIFF, max 50 MB)     |
-    | mode  | string | english | `bangla`, `english`, or `mixed`                   |
 
     ### Quota enforcement
     - If `pages_used + pages_in_file > total_pages` → **HTTP 402** (quota exceeded).
@@ -400,7 +396,6 @@ async def enterprise_ocr(
     ```js
     const form = new FormData();
     form.append('file', fileInput.files[0]);
-    form.append('mode', 'bangla');
     const { data } = await axios.post(
       `/api/v1/enterprise/${enterpriseId}/ocr`, form,
       { headers: { Authorization: `Bearer ${token}` } }
@@ -452,11 +447,9 @@ async def enterprise_ocr(
             },
         )
 
-    langs = OCR_MODES.get(mode, ["en"])
     request_start = time.time()
-    # Enterprise OCR always uses process_file_auto; admin/super-users get Mistral
     result = await process_file_auto(
-        content, langs, mode=mode,
+        content,
         user=current_user,
         user_id=current_user.id,
         user_email=current_user.email,

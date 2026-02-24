@@ -2,7 +2,7 @@
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends, Request, Response
 import logging
 import time
-from typing import Literal, Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional
 from sqlalchemy.orm import Session
 
 from app.services.ocr_service import process_file, process_file_auto, detect_file_type, select_ocr_engine
@@ -29,12 +29,6 @@ from app.errors.exceptions import ForbiddenException
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
-
-OCR_MODES = {
-    "bangla": ["bn"],
-    "english": ["en"],
-    "mixed": ["bn", "en"]
-}
 
 
 def format_plain_text_response(result: Dict[str, Any]) -> Dict[str, str]:
@@ -159,7 +153,6 @@ def save_to_database(
 @router.post("/pages") 
 async def ocr_page_by_page(
     file: UploadFile = File(...),
-    mode: Literal["bangla", "english", "mixed"] = Form("english"),
     save_to_db: bool = Form(True),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_user)
@@ -179,7 +172,6 @@ async def ocr_page_by_page(
     | Field      | Type    | Default  | Description                                        |
     |------------|---------|----------|----------------------------------------------------|
     | file       | file    | —        | Document to process (PDF / JPEG / PNG / TIFF etc.) |
-    | mode       | string  | english  | OCR language: `bangla`, `english`, or `mixed`      |
     | save_to_db | boolean | true     | Whether to persist the result in the database      |
 
     ### Limits
@@ -201,7 +193,6 @@ async def ocr_page_by_page(
     ```js
     const form = new FormData();
     form.append('file', fileInput.files[0]);
-    form.append('mode', 'bangla');
     form.append('save_to_db', 'true');
     const { data } = await axios.post('/api/v1/ocr/pages', form, {
       headers: { Authorization: `Bearer ${token}` }
@@ -214,7 +205,6 @@ async def ocr_page_by_page(
     request_start_time = time.time()
     
     try:
-        langs = OCR_MODES.get(mode, ["en"])
         content = await file.read()
         
         if len(content) == 0:
@@ -271,7 +261,7 @@ async def ocr_page_by_page(
             f"email={current_user.email} role={current_user.role}"
         )
         result = await process_file_auto(
-            content, langs, mode=mode,
+            content,
             user=current_user,
             user_id=current_user.id,
             user_email=current_user.email,
@@ -309,7 +299,6 @@ async def ocr_free_trial(
     request: Request,
     response: Response,
     file: UploadFile = File(...),
-    mode: Literal["bangla", "english", "mixed"] = Form("english"),
     db: Session = Depends(get_db)
 ):
     """
@@ -337,7 +326,6 @@ async def ocr_free_trial(
     | Field | Type   | Default | Description                                       |
     |-------|--------|---------|---------------------------------------------------|
     | file  | file   | —       | Document (PDF / JPEG / PNG / TIFF — max 10 MB)   |
-    | mode  | string | english | OCR language: `bangla`, `english`, or `mixed`     |
 
     ### Response (unauthenticated)
     ```json
@@ -359,7 +347,6 @@ async def ocr_free_trial(
     ```js
     const form = new FormData();
     form.append('file', fileInput.files[0]);
-    form.append('mode', 'english');
     // No Authorization header needed
     const { data } = await axios.post('/api/v1/ocr/free-trial', form, {
       withCredentials: true  // required for the trial-tracking cookie
@@ -384,7 +371,6 @@ async def ocr_free_trial(
         is_registered = isinstance(user_or_trial, User)
         user_id = user_or_trial.id if is_registered else None
 
-        langs = OCR_MODES.get(mode, ["en"])
         content = await file.read()
 
         if len(content) == 0:
@@ -465,7 +451,7 @@ async def ocr_free_trial(
             f"email={user_email_for_log} registered={is_registered}"
         )
         result = await process_file_auto(
-            content, langs, mode=mode,
+            content,
             user=user_or_trial if is_registered else None,
             user_id=user_id,
             user_email=user_email_for_log,
