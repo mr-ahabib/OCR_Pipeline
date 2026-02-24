@@ -25,6 +25,9 @@ class Settings:
 
     # Google OAuth2 (Sign in with Google)
     GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
+
+    # Mistral AI (premium OCR — used for subscribed users, admin, super-user)
+    MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY", "")
     
     # OCR Performance Configuration
     OCR_MAX_PARALLEL_PAGES = int(os.getenv("OCR_MAX_PARALLEL_PAGES", max(1, min(4, (os.cpu_count() or 4)))))

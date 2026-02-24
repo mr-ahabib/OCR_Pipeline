@@ -1,20 +1,30 @@
-"""OCR service — Google Document AI, pipelined batch conversion + parallel dispatch.
+"""OCR service — engine selection, Google Document AI pipeline, and Mistral OCR.
 
-Speed + accuracy strategy for PDFs:
-  1. Convert pages at 300 DPI (grayscale) using pdf2image.
-     Grayscale at 300 DPI is ~3× smaller than RGB, so DocAI uploads stay fast
-     while the extra resolution significantly improves character recognition
-     (especially for complex scripts like Bangla).
+Engine routing
+--------------
+  Mistral OCR (premium, structure-preserving)
+      • UserRole.SUPER_USER
+      • UserRole.ADMIN
+      • Regular USER with an active subscription
+
+  Google Document AI (fast, high-volume)
+      • Regular USER on free tier (no subscription)
+      • Free-trial users (no account)
+      • Any unauthenticated caller
+
+DocAI speed strategy for PDFs:
+  1. Convert pages at 300 DPI (grayscale) — 3× smaller than RGB for the same
+     quality, keeping DocAI uploads fast while preserving accuracy for complex
+     scripts such as Bangla.
   2. Batches of CONVERT_BATCH (4) pages are dispatched to DocAI IMMEDIATELY
-     as each batch finishes converting — smaller batches mean DocAI starts
-     sooner and pipelining overlap is tighter.
+     after conversion — smaller batches mean earlier dispatch and tighter
+     pipeline overlap.
   3. Up to MAX_PARALLEL (50) DocAI requests run concurrently.
 
-Pipeline overlap for 46 pages:
-  Batch 1 (p1-4)  → convert → dispatch ──────────────────► DocAI
-  Batch 2 (p5-8)  → convert ──────────────────────────────► DocAI  (overlap!)
-  Batch 3 ...
-  Total ≈ max(conversion_time, docai_time)  instead of  sum(both)
+Mistral strategy for PDFs:
+  Entire PDF is sent as a single base64-encoded document in one API call.
+  Mistral natively handles multi-page PDFs, extracts tables as HTML,
+  equations as LaTeX/markdown, and embeds figures inline as base64 images.
 """
 import asyncio
 import io
@@ -22,12 +32,13 @@ import logging
 import os
 import time
 from concurrent.futures import ThreadPoolExecutor
-from typing import List
+from typing import List, Optional, Union
 
 from PIL import Image
 from pdf2image import convert_from_bytes
 
 from app.ocr.google_docai_engine import run_docai_page, run_docai_image
+from app.ocr.mistral_ocr_engine import run_mistral_ocr
 from app.utils.logger import setup_file_logging, log_ocr_operation, log_performance_metrics
 from app.utils.pdf_utils import count_pdf_pages
 
@@ -147,7 +158,8 @@ async def _pipeline_pdf(pdf_bytes: bytes, total_pages: int) -> List[dict]:
     results.sort(key=lambda p: p["page_number"])
     return results
 
-async def process_file(file_bytes: bytes, langs: list, mode: str = "english"):
+async def process_file(file_bytes: bytes, langs: list, mode: str = "english",
+                       user_id: Optional[int] = None, user_email: Optional[str] = None):
     """
     Process a file with Google Document AI.
 
@@ -223,7 +235,8 @@ async def process_file(file_bytes: bytes, langs: list, mode: str = "english"):
                 "features": FEATURES + ["Multi-page parallel processing"],
             }
 
-        log_ocr_operation("COMPLETE", file_info, result)
+        log_ocr_operation("COMPLETE", file_info, result,
+                           user_id=user_id, user_email=user_email)
         log_performance_metrics("OCR_PROCESSING", processing_time, len(all_pages), file_size)
         return result
 
@@ -231,6 +244,168 @@ async def process_file(file_bytes: bytes, langs: list, mode: str = "english"):
         processing_time = time.time() - start_time
         error_msg = f"OCR processing failed: {str(e)}"
         logger.error(error_msg)
-        log_ocr_operation("FAILED", f"File ({file_size // 1024}KB)", error=error_msg)
+        log_ocr_operation("FAILED", f"File ({file_size // 1024}KB)", error=error_msg,
+                           user_id=user_id, user_email=user_email)
         log_performance_metrics("OCR_FAILED", processing_time, 0, file_size)
         raise
+
+
+# ── engine selection ──────────────────────────────────────────────────────────
+
+def select_ocr_engine(user) -> str:
+    """Return ``"mistral"`` for premium users, ``"docai"`` for everyone else.
+
+    Premium (Mistral OCR):
+        • UserRole.SUPER_USER
+        • UserRole.ADMIN
+        • Regular USER with an active subscription
+
+    Standard (Google Document AI):
+        • Regular USER on free tier
+        • Free-trial / unauthenticated callers (user is None or FreeTrialUser)
+    """
+    if user is None:
+        return "docai"
+
+    from app.models.user import User as UserModel, UserRole
+    from app.models.free_trial_user import FreeTrialUser
+
+    if isinstance(user, FreeTrialUser):
+        return "docai"
+
+    if isinstance(user, UserModel):
+        if user.role in (UserRole.SUPER_USER, UserRole.ADMIN):
+            return "mistral"
+        if user.has_active_subscription:
+            return "mistral"
+
+    return "docai"
+
+
+async def process_file_mistral(
+    file_bytes: bytes,
+    langs: list,
+    mode: str = "english",
+    user_id: Optional[int] = None,
+    user_email: Optional[str] = None,
+) -> dict:
+    """Process a file with Mistral OCR (premium engine).
+
+    Handles PDFs and images.  Returns a result dict compatible with all
+    existing endpoints and the save-to-database helper.
+
+    The ``text`` field contains structured Markdown with:
+      - HTML tables  (from ``table_format="html"``)
+      - Inline base64 images at their original positions
+      - LaTeX / Unicode math equations
+    """
+    start_time = time.time()
+    file_size = len(file_bytes)
+
+    try:
+        file_type = detect_file_type(file_bytes)
+        if file_type == "unknown":
+            raise ValueError("Unsupported file format — cannot identify file type.")
+
+        if file_size > 10 * 1024 * 1024:
+            logger.warning(
+                f"LARGE FILE - Mistral OCR - Type: {file_type}, Size: {file_size // 1024}KB"
+            )
+
+        file_label = (
+            f"PDF ({file_size // 1024}KB)" if file_type == "pdf"
+            else f"Image ({file_size // 1024}KB)"
+        )
+        logger.info(f"Mistral OCR start: {file_label} | user_id={user_id} email={user_email}")
+
+        raw = await run_mistral_ocr(file_bytes, file_type)
+
+        processing_time = time.time() - start_time
+
+        all_pages = raw["pages_data"]
+        avg_conf = raw["confidence"]
+
+        if len(all_pages) == 1:
+            result = {
+                "text": all_pages[0]["text"] if all_pages else "",
+                "confidence": avg_conf,
+                "pages": 1,
+                "languages": langs,
+                "mode": mode,
+                "engine": raw["engine"],
+                "features": raw["features"],
+                "images_count": raw.get("images_count", 0),
+            }
+        else:
+            result = {
+                "text": raw["text"],
+                "pages_data": all_pages,
+                "confidence": avg_conf,
+                "pages": len(all_pages),
+                "languages": langs,
+                "mode": mode,
+                "engine": raw["engine"],
+                "features": raw["features"],
+                "images_count": raw.get("images_count", 0),
+            }
+
+        log_ocr_operation(
+            "COMPLETE", file_label, result,
+            user_id=user_id, user_email=user_email,
+        )
+        log_performance_metrics("MISTRAL_OCR", processing_time, len(all_pages), file_size)
+        return result
+
+    except Exception as e:
+        processing_time = time.time() - start_time
+        error_msg = f"Mistral OCR failed: {str(e)}"
+        logger.error(error_msg)
+        log_ocr_operation(
+            "FAILED", f"File ({file_size // 1024}KB)", error=error_msg,
+            user_id=user_id, user_email=user_email,
+        )
+        log_performance_metrics("MISTRAL_OCR_FAILED", processing_time, 0, file_size)
+        raise
+
+
+async def process_file_auto(
+    file_bytes: bytes,
+    langs: list,
+    mode: str = "english",
+    user=None,
+    user_id: Optional[int] = None,
+    user_email: Optional[str] = None,
+) -> dict:
+    """Route to Mistral or DocAI based on the caller's role / subscription.
+
+    This is the **single entry point** for all OCR endpoints.  Callers should
+    use this instead of calling ``process_file`` or ``process_file_mistral``
+    directly.
+
+    Args:
+        file_bytes:  Raw document bytes.
+        langs:       Language hint list (e.g. ``["en"]``).
+        mode:        OCR mode string (``"english"``, ``"bangla"``, ``"mixed"``).
+        user:        ``User`` model instance, ``FreeTrialUser``, or ``None``.
+        user_id:     User primary key (for logging).
+        user_email:  User email address (for logging).
+
+    Returns:
+        Structured result dict from either engine.
+    """
+    engine = select_ocr_engine(user)
+    logger.info(
+        f"OCR engine selected: {engine.upper()} | "
+        f"user_id={user_id} email={user_email}"
+    )
+
+    if engine == "mistral":
+        return await process_file_mistral(
+            file_bytes, langs, mode,
+            user_id=user_id, user_email=user_email,
+        )
+    else:
+        return await process_file(
+            file_bytes, langs, mode,
+            user_id=user_id, user_email=user_email,
+        )

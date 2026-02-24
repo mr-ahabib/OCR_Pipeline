@@ -165,10 +165,18 @@ def update_payment_status(
     if not ent:
         return None
 
-    ent.payment_status = EnterprisePaymentStatus(payload.payment_status.value)
+    # ── accumulate advance payment (additive, not a replace) ──────────────────
     if payload.advance_bill is not None:
-        ent.advance_bill = payload.advance_bill
-        ent.due_amount   = max(0.0, ent.total_cost - ent.advance_bill)
+        ent.advance_bill = round((ent.advance_bill or 0.0) + payload.advance_bill, 2)
+        ent.due_amount   = round(max(0.0, (ent.total_cost or 0.0) - ent.advance_bill), 2)
+
+    # ── auto-derive payment_status from the resulting amounts ─────────────────
+    if ent.due_amount <= 0:
+        ent.payment_status = EnterprisePaymentStatus.PAID
+    elif (ent.advance_bill or 0.0) > 0:
+        ent.payment_status = EnterprisePaymentStatus.PARTIAL_PAID
+    else:
+        ent.payment_status = EnterprisePaymentStatus.DUE
 
     db.commit()
     db.refresh(ent)

@@ -66,9 +66,20 @@ class EnterpriseUpdate(BaseModel):
 
 
 class EnterprisePaymentStatusUpdate(BaseModel):
-    payment_status: EnterprisePaymentStatus
-    advance_bill:   Optional[float] = Field(None, ge=0,
-                                            description="Update advance amount at the same time")
+    advance_bill:   Optional[float] = Field(
+        None, ge=0,
+        description=(
+            "Additional payment received now — added to the existing cumulative "
+            "advance_bill total.  payment_status is auto-derived from the resulting "
+            "balance and does not need to be supplied."
+        ),
+    )
+    # payment_status is intentionally optional: the service derives it
+    # automatically from (advance_bill, due_amount).  Callers may omit it.
+    payment_status: Optional[EnterprisePaymentStatus] = Field(
+        None,
+        description="Leave blank — auto-derived from the payment balance.",
+    )
 
 
 class EnterpriseResponse(BaseModel):

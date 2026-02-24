@@ -1,7 +1,6 @@
 """Invoice PDF generator — uses fpdf2 (already in requirements.txt)."""
 from __future__ import annotations
 
-import io
 from datetime import datetime
 from typing import Optional
 
@@ -29,7 +28,6 @@ def generate_invoice_pdf(
     pdf.add_page()
     pdf.set_auto_page_break(auto=False)
 
-    # ── Header band ────────────────────────────────────────────────────────────
     pdf.set_fill_color(15, 23, 42)    # dark navy
     pdf.rect(0, 0, 210, 38, "F")
 
@@ -57,7 +55,6 @@ def generate_invoice_pdf(
 
     pdf.set_y(46)
 
-    # ── Meta row ───────────────────────────────────────────────────────────────
     pdf.set_text_color(55, 65, 81)
     pdf.set_font("Helvetica", "B", 8)
     pdf.set_fill_color(241, 245, 249)
@@ -104,12 +101,10 @@ def generate_invoice_pdf(
 
     pdf.ln(6)
 
-    # ── Divider ────────────────────────────────────────────────────────────────
     pdf.set_draw_color(229, 231, 235)
     pdf.line(14, pdf.get_y(), 196, pdf.get_y())
     pdf.ln(6)
 
-    # ── Line items table ───────────────────────────────────────────────────────
     # Header
     pdf.set_fill_color(15, 23, 42)
     pdf.set_text_color(255, 255, 255)
@@ -135,7 +130,6 @@ def generate_invoice_pdf(
 
     pdf.ln(4)
 
-    # ── Totals ─────────────────────────────────────────────────────────────────
     def _total_row(label: str, value: str, bold: bool = False, color=None):
         pdf.set_x(110)
         pdf.set_font("Helvetica", "B" if bold else "", 9)
@@ -154,7 +148,6 @@ def generate_invoice_pdf(
 
     pdf.ln(10)
 
-    # ── Thank you note ─────────────────────────────────────────────────────────
     pdf.set_fill_color(241, 245, 249)
     pdf.set_x(14)
     pdf.set_font("Helvetica", "", 9)
@@ -166,7 +159,6 @@ def generate_invoice_pdf(
         fill=True,
     )
 
-    # ── Footer ─────────────────────────────────────────────────────────────────
     pdf.set_y(-20)
     pdf.set_draw_color(226, 232, 240)
     pdf.line(14, pdf.get_y(), 196, pdf.get_y())
@@ -175,7 +167,5 @@ def generate_invoice_pdf(
     pdf.set_x(14)
     pdf.cell(182, 8, "DoceanAI  |  support@doceanai.cloud  |  doceanai.cloud", align="C")
 
-    # Return bytes
-    buf = io.BytesIO()
-    pdf.output(buf)
-    return buf.getvalue()
+    # Return bytes (fpdf2: output() returns bytearray; cast to bytes for compatibility)
+    return bytes(pdf.output())

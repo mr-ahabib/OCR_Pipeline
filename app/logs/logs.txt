@@ -3650,3 +3650,381 @@ FROM users) AS anon_1]
            Details: OCR Pipeline SESSION STARTED at 2026-02-24 12:28:43
 1933     | 2026-02-24   | 12:28:43   | WARNING  | main.startup_event        | OCR Pipeline API STARTED - Database i...
            Details: OCR Pipeline API STARTED - Database initialized successfully
+1934     | 2026-02-24   | 12:56:24   | WARNING  | main.shutdown_event       | OCR Pipeline API SHUTDOWN               
+1935     | 2026-02-24   | 12:56:25   | WARNING  | logger.setup_file_logging | OCR Pipeline SESSION STARTED at 2026-...
+           Details: OCR Pipeline SESSION STARTED at 2026-02-24 12:56:25
+1936     | 2026-02-24   | 12:56:25   | WARNING  | logger.setup_file_logging | OCR Pipeline SESSION STARTED at 2026-...
+           Details: OCR Pipeline SESSION STARTED at 2026-02-24 12:56:25
+1937     | 2026-02-24   | 12:56:25   | WARNING  | main.startup_event        | OCR Pipeline API STARTED - Database i...
+           Details: OCR Pipeline API STARTED - Database initialized successfully
+1938     | 2026-02-24   | 13:43:08   | WARNING  | main.shutdown_event       | OCR Pipeline API SHUTDOWN               
+1939     | 2026-02-24   | 13:43:08   | WARNING  | logger.setup_file_logging | OCR Pipeline SESSION STARTED at 2026-...
+           Details: OCR Pipeline SESSION STARTED at 2026-02-24 13:43:08
+1940     | 2026-02-24   | 13:43:09   | WARNING  | logger.setup_file_logging | OCR Pipeline SESSION STARTED at 2026-...
+           Details: OCR Pipeline SESSION STARTED at 2026-02-24 13:43:09
+1941     | 2026-02-24   | 13:43:09   | WARNING  | main.startup_event        | OCR Pipeline API STARTED - Database i...
+           Details: OCR Pipeline API STARTED - Database initialized successfully
+1942     | 2026-02-24   | 13:43:13   | WARNING  | main.shutdown_event       | OCR Pipeline API SHUTDOWN               
+1943     | 2026-02-24   | 13:43:13   | WARNING  | logger.setup_file_logging | OCR Pipeline SESSION STARTED at 2026-...
+           Details: OCR Pipeline SESSION STARTED at 2026-02-24 13:43:13
+1944     | 2026-02-24   | 13:43:14   | WARNING  | logger.setup_file_logging | OCR Pipeline SESSION STARTED at 2026-...
+           Details: OCR Pipeline SESSION STARTED at 2026-02-24 13:43:14
+1945     | 2026-02-24   | 13:43:14   | WARNING  | main.startup_event        | OCR Pipeline API STARTED - Database i...
+           Details: OCR Pipeline API STARTED - Database initialized successfully
+1946     | 2026-02-24   | 13:43:16   | WARNING  | main.shutdown_event       | OCR Pipeline API SHUTDOWN               
+1947     | 2026-02-24   | 13:43:17   | WARNING  | logger.setup_file_logging | OCR Pipeline SESSION STARTED at 2026-...
+           Details: OCR Pipeline SESSION STARTED at 2026-02-24 13:43:17
+1948     | 2026-02-24   | 13:43:17   | WARNING  | logger.setup_file_logging | OCR Pipeline SESSION STARTED at 2026-...
+           Details: OCR Pipeline SESSION STARTED at 2026-02-24 13:43:17
+1949     | 2026-02-24   | 13:43:17   | WARNING  | main.startup_event        | OCR Pipeline API STARTED - Database i...
+           Details: OCR Pipeline API STARTED - Database initialized successfully
+1950     | 2026-02-24   | 13:43:20   | WARNING  | main.shutdown_event       | OCR Pipeline API SHUTDOWN               
+1951     | 2026-02-24   | 13:43:21   | WARNING  | logger.setup_file_logging | OCR Pipeline SESSION STARTED at 2026-...
+           Details: OCR Pipeline SESSION STARTED at 2026-02-24 13:43:21
+1952     | 2026-02-24   | 13:43:21   | WARNING  | logger.setup_file_logging | OCR Pipeline SESSION STARTED at 2026-...
+           Details: OCR Pipeline SESSION STARTED at 2026-02-24 13:43:21
+1953     | 2026-02-24   | 13:43:21   | WARNING  | main.startup_event        | OCR Pipeline API STARTED - Database i...
+           Details: OCR Pipeline API STARTED - Database initialized successfully
+1954     | 2026-02-24   | 13:43:22   | WARNING  | main.shutdown_event       | OCR Pipeline API SHUTDOWN               
+1955     | 2026-02-24   | 13:43:23   | WARNING  | logger.setup_file_logging | OCR Pipeline SESSION STARTED at 2026-...
+           Details: OCR Pipeline SESSION STARTED at 2026-02-24 13:43:23
+1956     | 2026-02-24   | 13:43:23   | WARNING  | logger.setup_file_logging | OCR Pipeline SESSION STARTED at 2026-...
+           Details: OCR Pipeline SESSION STARTED at 2026-02-24 13:43:23
+1957     | 2026-02-24   | 13:43:23   | WARNING  | main.startup_event        | OCR Pipeline API STARTED - Database i...
+           Details: OCR Pipeline API STARTED - Database initialized successfully
+1958     | 2026-02-24   | 13:43:29   | WARNING  | main.shutdown_event       | OCR Pipeline API SHUTDOWN               
+1959     | 2026-02-24   | 13:43:30   | WARNING  | logger.setup_file_logging | OCR Pipeline SESSION STARTED at 2026-...
+           Details: OCR Pipeline SESSION STARTED at 2026-02-24 13:43:30
+1960     | 2026-02-24   | 13:43:30   | WARNING  | logger.setup_file_logging | OCR Pipeline SESSION STARTED at 2026-...
+           Details: OCR Pipeline SESSION STARTED at 2026-02-24 13:43:30
+1961     | 2026-02-24   | 13:43:30   | WARNING  | main.startup_event        | OCR Pipeline API STARTED - Database i...
+           Details: OCR Pipeline API STARTED - Database initialized successfully
+1962     | 2026-02-24   | 13:43:37   | WARNING  | main.shutdown_event       | OCR Pipeline API SHUTDOWN               
+1963     | 2026-02-24   | 13:43:37   | WARNING  | logger.setup_file_logging | OCR Pipeline SESSION STARTED at 2026-...
+           Details: OCR Pipeline SESSION STARTED at 2026-02-24 13:43:37
+1964     | 2026-02-24   | 13:43:37   | WARNING  | logger.setup_file_logging | OCR Pipeline SESSION STARTED at 2026-...
+           Details: OCR Pipeline SESSION STARTED at 2026-02-24 13:43:37
+1965     | 2026-02-24   | 13:43:37   | WARNING  | main.startup_event        | OCR Pipeline API STARTED - Database i...
+           Details: OCR Pipeline API STARTED - Database initialized successfully
+1966     | 2026-02-24   | 13:58:59   | WARNING  | main.shutdown_event       | OCR Pipeline API SHUTDOWN               
+1967     | 2026-02-24   | 13:59:00   | WARNING  | logger.setup_file_logging | OCR Pipeline SESSION STARTED at 2026-...
+           Details: OCR Pipeline SESSION STARTED at 2026-02-24 13:59:00
+1968     | 2026-02-24   | 13:59:00   | WARNING  | logger.setup_file_logging | OCR Pipeline SESSION STARTED at 2026-...
+           Details: OCR Pipeline SESSION STARTED at 2026-02-24 13:59:00
+1969     | 2026-02-24   | 13:59:00   | WARNING  | main.startup_event        | OCR Pipeline API STARTED - Database i...
+           Details: OCR Pipeline API STARTED - Database initialized successfully
+1970     | 2026-02-24   | 13:59:25   | WARNING  | main.shutdown_event       | OCR Pipeline API SHUTDOWN               
+1971     | 2026-02-24   | 13:59:26   | WARNING  | logger.setup_file_logging | OCR Pipeline SESSION STARTED at 2026-...
+           Details: OCR Pipeline SESSION STARTED at 2026-02-24 13:59:26
+1972     | 2026-02-24   | 13:59:26   | WARNING  | logger.setup_file_logging | OCR Pipeline SESSION STARTED at 2026-...
+           Details: OCR Pipeline SESSION STARTED at 2026-02-24 13:59:26
+1973     | 2026-02-24   | 13:59:26   | WARNING  | main.startup_event        | OCR Pipeline API STARTED - Database i...
+           Details: OCR Pipeline API STARTED - Database initialized successfully
+1974     | 2026-02-24   | 13:59:52   | WARNING  | main.shutdown_event       | OCR Pipeline API SHUTDOWN               
+1975     | 2026-02-24   | 13:59:52   | WARNING  | logger.setup_file_logging | OCR Pipeline SESSION STARTED at 2026-...
+           Details: OCR Pipeline SESSION STARTED at 2026-02-24 13:59:52
+1976     | 2026-02-24   | 13:59:53   | WARNING  | logger.setup_file_logging | OCR Pipeline SESSION STARTED at 2026-...
+           Details: OCR Pipeline SESSION STARTED at 2026-02-24 13:59:53
+1977     | 2026-02-24   | 13:59:53   | WARNING  | main.startup_event        | OCR Pipeline API STARTED - Database i...
+           Details: OCR Pipeline API STARTED - Database initialized successfully
+1978     | 2026-02-24   | 13:59:57   | WARNING  | main.shutdown_event       | OCR Pipeline API SHUTDOWN               
+1979     | 2026-02-24   | 13:59:58   | WARNING  | logger.setup_file_logging | OCR Pipeline SESSION STARTED at 2026-...
+           Details: OCR Pipeline SESSION STARTED at 2026-02-24 13:59:58
+1980     | 2026-02-24   | 13:59:58   | WARNING  | logger.setup_file_logging | OCR Pipeline SESSION STARTED at 2026-...
+           Details: OCR Pipeline SESSION STARTED at 2026-02-24 13:59:58
+1981     | 2026-02-24   | 13:59:58   | WARNING  | main.startup_event        | OCR Pipeline API STARTED - Database i...
+           Details: OCR Pipeline API STARTED - Database initialized successfully
+1982     | 2026-02-24   | 14:00:05   | WARNING  | main.shutdown_event       | OCR Pipeline API SHUTDOWN               
+1983     | 2026-02-24   | 14:00:06   | WARNING  | logger.setup_file_logging | OCR Pipeline SESSION STARTED at 2026-...
+           Details: OCR Pipeline SESSION STARTED at 2026-02-24 14:00:06
+1984     | 2026-02-24   | 14:00:06   | WARNING  | logger.setup_file_logging | OCR Pipeline SESSION STARTED at 2026-...
+           Details: OCR Pipeline SESSION STARTED at 2026-02-24 14:00:06
+1985     | 2026-02-24   | 14:00:06   | WARNING  | main.startup_event        | OCR Pipeline API STARTED - Database i...
+           Details: OCR Pipeline API STARTED - Database initialized successfully
+1986     | 2026-02-24   | 14:00:20   | WARNING  | main.shutdown_event       | OCR Pipeline API SHUTDOWN               
+1987   | 2026-02-24   | 14:09:03   | WARNING  | -        | -                            | logger.setup_file_logging | OCR Pipeline SESSION STARTED at 2026-...
+         Details: OCR Pipeline SESSION STARTED at 2026-02-24 14:09:03
+1988   | 2026-02-24   | 14:09:24   | WARNING  | -        | -                            | logger.setup_file_logging | OCR Pipeline SESSION STARTED at 2026-...
+         Details: OCR Pipeline SESSION STARTED at 2026-02-24 14:09:24
+1989   | 2026-02-24   | 14:09:44   | WARNING  | -        | -                            | logger.setup_file_logging | OCR Pipeline SESSION STARTED at 2026-...
+         Details: OCR Pipeline SESSION STARTED at 2026-02-24 14:09:44
+1990   | 2026-02-24   | 14:09:45   | WARNING  | -        | -                            | logger.setup_file_logging | OCR Pipeline SESSION STARTED at 2026-...
+         Details: OCR Pipeline SESSION STARTED at 2026-02-24 14:09:45
+1991   | 2026-02-24   | 14:09:45   | WARNING  | -        | -                            | main.startup_event        | OCR Pipeline API STARTED - Database i...
+         Details: OCR Pipeline API STARTED - Database initialized successfully
+1992   | 2026-02-24   | 14:10:10   | WARNING  | -        | -                            | logger.log_ocr_operation  | OCR COMPLETE OK — Engine: Google Docu...
+         Details: OCR COMPLETE OK — Engine: Google Document AI — File: Image (1 page, 106KB) — Pages: 1 — Conf: 95.62%
+1993   | 2026-02-24   | 14:10:29   | WARNING  | 4        | jahid@gmail.com.com          | logger.log_ocr_operation  | OCR COMPLETE OK — Engine: Mistral OCR...
+         Details: OCR COMPLETE OK — Engine: Mistral OCR — File: Image (106KB) — Pages: 1 — Conf: 99.00%
+1994   | 2026-02-24   | 14:11:24   | WARNING  | 4        | jahid@gmail.com.com          | logger.log_ocr_operation  | OCR COMPLETE OK — Engine: Mistral OCR...
+         Details: OCR COMPLETE OK — Engine: Mistral OCR — File: Image (52KB) — Pages: 1 — Conf: 99.00%
+1995   | 2026-02-24   | 14:14:22   | WARNING  | -        | -                            | main.shutdown_event       | OCR Pipeline API SHUTDOWN               
+1996   | 2026-02-24   | 14:14:23   | WARNING  | -        | -                            | logger.setup_file_logging | OCR Pipeline SESSION STARTED at 2026-...
+         Details: OCR Pipeline SESSION STARTED at 2026-02-24 14:14:23
+1997   | 2026-02-24   | 14:14:23   | WARNING  | -        | -                            | logger.setup_file_logging | OCR Pipeline SESSION STARTED at 2026-...
+         Details: OCR Pipeline SESSION STARTED at 2026-02-24 14:14:23
+1998   | 2026-02-24   | 14:14:23   | WARNING  | -        | -                            | main.startup_event        | OCR Pipeline API STARTED - Database i...
+         Details: OCR Pipeline API STARTED - Database initialized successfully
+1999   | 2026-02-24   | 14:21:19   | WARNING  | -        | -                            | main.shutdown_event       | OCR Pipeline API SHUTDOWN               
+2000   | 2026-02-24   | 14:21:20   | WARNING  | -        | -                            | logger.setup_file_logging | OCR Pipeline SESSION STARTED at 2026-...
+         Details: OCR Pipeline SESSION STARTED at 2026-02-24 14:21:20
+2001   | 2026-02-24   | 14:21:20   | WARNING  | -        | -                            | logger.setup_file_logging | OCR Pipeline SESSION STARTED at 2026-...
+         Details: OCR Pipeline SESSION STARTED at 2026-02-24 14:21:20
+2002   | 2026-02-24   | 14:21:20   | WARNING  | -        | -                            | main.startup_event        | OCR Pipeline API STARTED - Database i...
+         Details: OCR Pipeline API STARTED - Database initialized successfully
+2003   | 2026-02-24   | 14:21:37   | WARNING  | -        | -                            | main.shutdown_event       | OCR Pipeline API SHUTDOWN               
+2004   | 2026-02-24   | 14:21:59   | WARNING  | -        | -                            | logger.setup_file_logging | OCR Pipeline SESSION STARTED at 2026-...
+         Details: OCR Pipeline SESSION STARTED at 2026-02-24 14:21:59
+2005   | 2026-02-24   | 14:21:59   | WARNING  | -        | -                            | logger.setup_file_logging | OCR Pipeline SESSION STARTED at 2026-...
+         Details: OCR Pipeline SESSION STARTED at 2026-02-24 14:21:59
+2006   | 2026-02-24   | 14:21:59   | WARNING  | -        | -                            | main.startup_event        | OCR Pipeline API STARTED - Database i...
+         Details: OCR Pipeline API STARTED - Database initialized successfully
+2007   | 2026-02-24   | 14:22:20   | WARNING  | -        | -                            | main.shutdown_event       | OCR Pipeline API SHUTDOWN               
+2008   | 2026-02-24   | 14:22:21   | WARNING  | -        | -                            | logger.setup_file_logging | OCR Pipeline SESSION STARTED at 2026-...
+         Details: OCR Pipeline SESSION STARTED at 2026-02-24 14:22:21
+2009   | 2026-02-24   | 14:22:21   | WARNING  | -        | -                            | logger.setup_file_logging | OCR Pipeline SESSION STARTED at 2026-...
+         Details: OCR Pipeline SESSION STARTED at 2026-02-24 14:22:21
+2010   | 2026-02-24   | 14:22:21   | WARNING  | -        | -                            | main.startup_event        | OCR Pipeline API STARTED - Database i...
+         Details: OCR Pipeline API STARTED - Database initialized successfully
+2011   | 2026-02-24   | 14:23:06   | WARNING  | -        | -                            | main.shutdown_event       | OCR Pipeline API SHUTDOWN               
+2012   | 2026-02-24   | 14:23:06   | WARNING  | -        | -                            | logger.setup_file_logging | OCR Pipeline SESSION STARTED at 2026-...
+         Details: OCR Pipeline SESSION STARTED at 2026-02-24 14:23:06
+2013   | 2026-02-24   | 14:23:38   | WARNING  | -        | -                            | logger.setup_file_logging | OCR Pipeline SESSION STARTED at 2026-...
+         Details: OCR Pipeline SESSION STARTED at 2026-02-24 14:23:38
+2014   | 2026-02-24   | 14:23:38   | WARNING  | -        | -                            | logger.setup_file_logging | OCR Pipeline SESSION STARTED at 2026-...
+         Details: OCR Pipeline SESSION STARTED at 2026-02-24 14:23:38
+2015   | 2026-02-24   | 14:23:38   | WARNING  | -        | -                            | main.startup_event        | OCR Pipeline API STARTED - Database i...
+         Details: OCR Pipeline API STARTED - Database initialized successfully
+2016   | 2026-02-24   | 14:25:47   | WARNING  | -        | -                            | main.shutdown_event       | OCR Pipeline API SHUTDOWN               
+2017   | 2026-02-24   | 14:25:48   | WARNING  | -        | -                            | logger.setup_file_logging | OCR Pipeline SESSION STARTED at 2026-...
+         Details: OCR Pipeline SESSION STARTED at 2026-02-24 14:25:48
+2018   | 2026-02-24   | 14:25:48   | WARNING  | -        | -                            | logger.setup_file_logging | OCR Pipeline SESSION STARTED at 2026-...
+         Details: OCR Pipeline SESSION STARTED at 2026-02-24 14:25:48
+2019   | 2026-02-24   | 14:25:48   | WARNING  | -        | -                            | main.startup_event        | OCR Pipeline API STARTED - Database i...
+         Details: OCR Pipeline API STARTED - Database initialized successfully
+2020   | 2026-02-24   | 14:26:05   | WARNING  | -        | -                            | main.shutdown_event       | OCR Pipeline API SHUTDOWN               
+2021   | 2026-02-24   | 14:26:06   | WARNING  | -        | -                            | logger.setup_file_logging | OCR Pipeline SESSION STARTED at 2026-...
+         Details: OCR Pipeline SESSION STARTED at 2026-02-24 14:26:06
+2022   | 2026-02-24   | 14:26:06   | WARNING  | -        | -                            | logger.setup_file_logging | OCR Pipeline SESSION STARTED at 2026-...
+         Details: OCR Pipeline SESSION STARTED at 2026-02-24 14:26:06
+2023   | 2026-02-24   | 14:26:06   | WARNING  | -        | -                            | main.startup_event        | OCR Pipeline API STARTED - Database i...
+         Details: OCR Pipeline API STARTED - Database initialized successfully
+2024   | 2026-02-24   | 14:26:48   | WARNING  | -        | -                            | logger.setup_file_logging | OCR Pipeline SESSION STARTED at 2026-...
+         Details: OCR Pipeline SESSION STARTED at 2026-02-24 14:26:48
+2024   | 2026-02-24   | 14:27:34   | WARNING  | -        | -                            | bcrypt._load_backend_mixin | (trapped) error reading bcrypt version  
+         Exception: Traceback (most recent call last):
+  File "/home/habib-qanun/Projects/OCR_Pipeline/venv/lib/python3.12/site-packages/passlib/handlers/bcrypt.py", line 620, in _load_backend_mixin
+    version = _bcrypt.__about__.__version__
+              ^^^^^^^^^^^^^^^^^
+AttributeError: module 'bcrypt' has no attribute '__about__'
+
+2025   | 2026-02-24   | 14:28:17   | WARNING  | 4        | jahid@gmail.com.com          | logger.log_ocr_operation  | OCR COMPLETE OK — Engine: Mistral OCR...
+         Details: OCR COMPLETE OK — Engine: Mistral OCR — File: Image (106KB) — Pages: 1 — Conf: 99.00%
+2026   | 2026-02-24   | 14:28:33   | WARNING  | 4        | jahid@gmail.com.com          | logger.log_ocr_operation  | OCR COMPLETE OK — Engine: Mistral OCR...
+         Details: OCR COMPLETE OK — Engine: Mistral OCR — File: Image (52KB) — Pages: 1 — Conf: 99.00%
+2027   | 2026-02-24   | 14:31:10   | WARNING  | -        | -                            | main.shutdown_event       | OCR Pipeline API SHUTDOWN               
+2028   | 2026-02-24   | 14:31:10   | WARNING  | -        | -                            | logger.setup_file_logging | OCR Pipeline SESSION STARTED at 2026-...
+         Details: OCR Pipeline SESSION STARTED at 2026-02-24 14:31:10
+2029   | 2026-02-24   | 14:31:11   | WARNING  | -        | -                            | logger.setup_file_logging | OCR Pipeline SESSION STARTED at 2026-...
+         Details: OCR Pipeline SESSION STARTED at 2026-02-24 14:31:11
+2030   | 2026-02-24   | 14:31:11   | WARNING  | -        | -                            | main.startup_event        | OCR Pipeline API STARTED - Database i...
+         Details: OCR Pipeline API STARTED - Database initialized successfully
+2031   | 2026-02-24   | 14:31:21   | WARNING  | -        | -                            | bcrypt._load_backend_mixin | (trapped) error reading bcrypt version  
+         Exception: Traceback (most recent call last):
+  File "/home/habib-qanun/Projects/OCR_Pipeline/venv/lib/python3.12/site-packages/passlib/handlers/bcrypt.py", line 620, in _load_backend_mixin
+    version = _bcrypt.__about__.__version__
+              ^^^^^^^^^^^^^^^^^
+AttributeError: module 'bcrypt' has no attribute '__about__'
+
+2032   | 2026-02-24   | 14:37:15   | WARNING  | -        | -                            | main.shutdown_event       | OCR Pipeline API SHUTDOWN               
+2033   | 2026-02-24   | 14:44:06   | WARNING  | -        | -                            | logger.setup_file_logging | OCR Pipeline SESSION STARTED at 2026-...
+         Details: OCR Pipeline SESSION STARTED at 2026-02-24 14:44:06
+2034   | 2026-02-24   | 14:44:07   | WARNING  | -        | -                            | logger.setup_file_logging | OCR Pipeline SESSION STARTED at 2026-...
+         Details: OCR Pipeline SESSION STARTED at 2026-02-24 14:44:07
+2035   | 2026-02-24   | 14:44:07   | WARNING  | -        | -                            | main.startup_event        | OCR Pipeline API STARTED - Database i...
+         Details: OCR Pipeline API STARTED - Database initialized successfully
+2036   | 2026-02-24   | 14:44:12   | ERROR    | -        | -                            | handlers.general_exception_handler | Unhandled exception on http://192.168...
+         Details: Unhandled exception on http://192.168.68.117:8000/api/v1/enterprise/3/invoice: expected str, bytes or os.PathLike object, not BytesIO
+         Exception: Traceback (most recent call last):
+  File "/home/habib-qanun/Projects/OCR_Pipeline/venv/lib/python3.12/site-packages/starlette/middleware/errors.py", line 164, in __call__
+    await self.app(scope, receive, _send)
+  File "/home/habib-qanun/Projects/OCR_Pipeline/venv/lib/python3.12/site-packages/starlette/middleware/cors.py", line 85, in __call__
+    await self.app(scope, receive, send)
+  File "/home/habib-qanun/Projects/OCR_Pipeline/venv/lib/python3.12/site-packages/starlette/middleware/exceptions.py", line 63, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "/home/habib-qanun/Projects/OCR_Pipeline/venv/lib/python3.12/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "/home/habib-qanun/Projects/OCR_Pipeline/venv/lib/python3.12/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "/home/habib-qanun/Projects/OCR_Pipeline/venv/lib/python3.12/site-packages/fastapi/middleware/asyncexitstack.py", line 18, in __call__
+    await self.app(scope, receive, send)
+  File "/home/habib-qanun/Projects/OCR_Pipeline/venv/lib/python3.12/site-packages/starlette/routing.py", line 716, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "/home/habib-qanun/Projects/OCR_Pipeline/venv/lib/python3.12/site-packages/starlette/routing.py", line 736, in app
+    await route.handle(scope, receive, send)
+  File "/home/habib-qanun/Projects/OCR_Pipeline/venv/lib/python3.12/site-packages/starlette/routing.py", line 290, in handle
+    await self.app(scope, receive, send)
+  File "/home/habib-qanun/Projects/OCR_Pipeline/venv/lib/python3.12/site-packages/fastapi/routing.py", line 119, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "/home/habib-qanun/Projects/OCR_Pipeline/venv/lib/python3.12/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "/home/habib-qanun/Projects/OCR_Pipeline/venv/lib/python3.12/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "/home/habib-qanun/Projects/OCR_Pipeline/venv/lib/python3.12/site-packages/fastapi/routing.py", line 105, in app
+    response = await f(request)
+               ^^^^^^^^^^^^^^^^
+  File "/home/habib-qanun/Projects/OCR_Pipeline/venv/lib/python3.12/site-packages/fastapi/routing.py", line 431, in app
+    raw_response = await run_endpoint_function(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/habib-qanun/Projects/OCR_Pipeline/venv/lib/python3.12/site-packages/fastapi/routing.py", line 313, in run_endpoint_function
+    return await dependant.call(**values)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/habib-qanun/Projects/OCR_Pipeline/app/api/v1/endpoints/enterprise_endpoints.py", line 344, in download_invoice
+    pdf_bytes = generate_enterprise_invoice_pdf(
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/habib-qanun/Projects/OCR_Pipeline/app/utils/enterprise_invoice.py", line 237, in generate_enterprise_invoice_pdf
+    pdf.output(buf)
+  File "/home/habib-qanun/Projects/OCR_Pipeline/venv/lib/python3.12/site-packages/fpdf/fpdf.py", line 1079, in output
+    f=open(name,'wb')
+      ^^^^^^^^^^^^^^^
+TypeError: expected str, bytes or os.PathLike object, not BytesIO
+
+--------------------------------------------------------------------------------------------------------------------------------------------------------------
+2037   | 2026-02-24   | 14:45:11   | WARNING  | -        | -                            | main.shutdown_event       | OCR Pipeline API SHUTDOWN               
+2038   | 2026-02-24   | 14:45:12   | WARNING  | -        | -                            | logger.setup_file_logging | OCR Pipeline SESSION STARTED at 2026-...
+         Details: OCR Pipeline SESSION STARTED at 2026-02-24 14:45:12
+2039   | 2026-02-24   | 14:45:12   | WARNING  | -        | -                            | logger.setup_file_logging | OCR Pipeline SESSION STARTED at 2026-...
+         Details: OCR Pipeline SESSION STARTED at 2026-02-24 14:45:12
+2040   | 2026-02-24   | 14:45:12   | WARNING  | -        | -                            | main.startup_event        | OCR Pipeline API STARTED - Database i...
+         Details: OCR Pipeline API STARTED - Database initialized successfully
+2041   | 2026-02-24   | 14:45:31   | WARNING  | -        | -                            | main.shutdown_event       | OCR Pipeline API SHUTDOWN               
+2042   | 2026-02-24   | 14:45:31   | WARNING  | -        | -                            | logger.setup_file_logging | OCR Pipeline SESSION STARTED at 2026-...
+         Details: OCR Pipeline SESSION STARTED at 2026-02-24 14:45:31
+2043   | 2026-02-24   | 14:45:31   | WARNING  | -        | -                            | logger.setup_file_logging | OCR Pipeline SESSION STARTED at 2026-...
+         Details: OCR Pipeline SESSION STARTED at 2026-02-24 14:45:31
+2044   | 2026-02-24   | 14:45:32   | WARNING  | -        | -                            | main.startup_event        | OCR Pipeline API STARTED - Database i...
+         Details: OCR Pipeline API STARTED - Database initialized successfully
+2045   | 2026-02-24   | 14:49:23   | WARNING  | -        | -                            | main.shutdown_event       | OCR Pipeline API SHUTDOWN               
+2046   | 2026-02-24   | 14:49:24   | WARNING  | -        | -                            | logger.setup_file_logging | OCR Pipeline SESSION STARTED at 2026-...
+         Details: OCR Pipeline SESSION STARTED at 2026-02-24 14:49:24
+2047   | 2026-02-24   | 14:49:24   | WARNING  | -        | -                            | logger.setup_file_logging | OCR Pipeline SESSION STARTED at 2026-...
+         Details: OCR Pipeline SESSION STARTED at 2026-02-24 14:49:24
+2048   | 2026-02-24   | 14:49:24   | WARNING  | -        | -                            | main.startup_event        | OCR Pipeline API STARTED - Database i...
+         Details: OCR Pipeline API STARTED - Database initialized successfully
+2049   | 2026-02-24   | 14:49:39   | ERROR    | -        | -                            | handlers.general_exception_handler | Unhandled exception on http://192.168...
+         Details: Unhandled exception on http://192.168.68.117:8000/api/v1/enterprise/3/invoice: 'bytearray' object has no attribute 'encode'
+         Exception: Traceback (most recent call last):
+  File "/home/habib-qanun/Projects/OCR_Pipeline/venv/lib/python3.12/site-packages/starlette/middleware/errors.py", line 164, in __call__
+    await self.app(scope, receive, _send)
+  File "/home/habib-qanun/Projects/OCR_Pipeline/venv/lib/python3.12/site-packages/starlette/middleware/cors.py", line 85, in __call__
+    await self.app(scope, receive, send)
+  File "/home/habib-qanun/Projects/OCR_Pipeline/venv/lib/python3.12/site-packages/starlette/middleware/exceptions.py", line 63, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "/home/habib-qanun/Projects/OCR_Pipeline/venv/lib/python3.12/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "/home/habib-qanun/Projects/OCR_Pipeline/venv/lib/python3.12/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "/home/habib-qanun/Projects/OCR_Pipeline/venv/lib/python3.12/site-packages/fastapi/middleware/asyncexitstack.py", line 18, in __call__
+    await self.app(scope, receive, send)
+  File "/home/habib-qanun/Projects/OCR_Pipeline/venv/lib/python3.12/site-packages/starlette/routing.py", line 716, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "/home/habib-qanun/Projects/OCR_Pipeline/venv/lib/python3.12/site-packages/starlette/routing.py", line 736, in app
+    await route.handle(scope, receive, send)
+  File "/home/habib-qanun/Projects/OCR_Pipeline/venv/lib/python3.12/site-packages/starlette/routing.py", line 290, in handle
+    await self.app(scope, receive, send)
+  File "/home/habib-qanun/Projects/OCR_Pipeline/venv/lib/python3.12/site-packages/fastapi/routing.py", line 119, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "/home/habib-qanun/Projects/OCR_Pipeline/venv/lib/python3.12/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "/home/habib-qanun/Projects/OCR_Pipeline/venv/lib/python3.12/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "/home/habib-qanun/Projects/OCR_Pipeline/venv/lib/python3.12/site-packages/fastapi/routing.py", line 105, in app
+    response = await f(request)
+               ^^^^^^^^^^^^^^^^
+  File "/home/habib-qanun/Projects/OCR_Pipeline/venv/lib/python3.12/site-packages/fastapi/routing.py", line 431, in app
+    raw_response = await run_endpoint_function(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/habib-qanun/Projects/OCR_Pipeline/venv/lib/python3.12/site-packages/fastapi/routing.py", line 313, in run_endpoint_function
+    return await dependant.call(**values)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/habib-qanun/Projects/OCR_Pipeline/app/api/v1/endpoints/enterprise_endpoints.py", line 349, in download_invoice
+    return Response(
+           ^^^^^^^^^
+  File "/home/habib-qanun/Projects/OCR_Pipeline/venv/lib/python3.12/site-packages/starlette/responses.py", line 46, in __init__
+    self.body = self.render(content)
+                ^^^^^^^^^^^^^^^^^^^^
+  File "/home/habib-qanun/Projects/OCR_Pipeline/venv/lib/python3.12/site-packages/starlette/responses.py", line 54, in render
+    return content.encode(self.charset)  # type: ignore
+           ^^^^^^^^^^^^^^
+AttributeError: 'bytearray' object has no attribute 'encode'. Did you mean: 'decode'?
+
+--------------------------------------------------------------------------------------------------------------------------------------------------------------
+2050   | 2026-02-24   | 14:49:48   | ERROR    | -        | -                            | handlers.general_exception_handler | Unhandled exception on http://192.168...
+         Details: Unhandled exception on http://192.168.68.117:8000/api/v1/enterprise/3/invoice: 'bytearray' object has no attribute 'encode'
+         Exception: Traceback (most recent call last):
+  File "/home/habib-qanun/Projects/OCR_Pipeline/venv/lib/python3.12/site-packages/starlette/middleware/errors.py", line 164, in __call__
+    await self.app(scope, receive, _send)
+  File "/home/habib-qanun/Projects/OCR_Pipeline/venv/lib/python3.12/site-packages/starlette/middleware/cors.py", line 85, in __call__
+    await self.app(scope, receive, send)
+  File "/home/habib-qanun/Projects/OCR_Pipeline/venv/lib/python3.12/site-packages/starlette/middleware/exceptions.py", line 63, in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+  File "/home/habib-qanun/Projects/OCR_Pipeline/venv/lib/python3.12/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "/home/habib-qanun/Projects/OCR_Pipeline/venv/lib/python3.12/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "/home/habib-qanun/Projects/OCR_Pipeline/venv/lib/python3.12/site-packages/fastapi/middleware/asyncexitstack.py", line 18, in __call__
+    await self.app(scope, receive, send)
+  File "/home/habib-qanun/Projects/OCR_Pipeline/venv/lib/python3.12/site-packages/starlette/routing.py", line 716, in __call__
+    await self.middleware_stack(scope, receive, send)
+  File "/home/habib-qanun/Projects/OCR_Pipeline/venv/lib/python3.12/site-packages/starlette/routing.py", line 736, in app
+    await route.handle(scope, receive, send)
+  File "/home/habib-qanun/Projects/OCR_Pipeline/venv/lib/python3.12/site-packages/starlette/routing.py", line 290, in handle
+    await self.app(scope, receive, send)
+  File "/home/habib-qanun/Projects/OCR_Pipeline/venv/lib/python3.12/site-packages/fastapi/routing.py", line 119, in app
+    await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+  File "/home/habib-qanun/Projects/OCR_Pipeline/venv/lib/python3.12/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
+    raise exc
+  File "/home/habib-qanun/Projects/OCR_Pipeline/venv/lib/python3.12/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
+    await app(scope, receive, sender)
+  File "/home/habib-qanun/Projects/OCR_Pipeline/venv/lib/python3.12/site-packages/fastapi/routing.py", line 105, in app
+    response = await f(request)
+               ^^^^^^^^^^^^^^^^
+  File "/home/habib-qanun/Projects/OCR_Pipeline/venv/lib/python3.12/site-packages/fastapi/routing.py", line 431, in app
+    raw_response = await run_endpoint_function(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/habib-qanun/Projects/OCR_Pipeline/venv/lib/python3.12/site-packages/fastapi/routing.py", line 313, in run_endpoint_function
+    return await dependant.call(**values)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/habib-qanun/Projects/OCR_Pipeline/app/api/v1/endpoints/enterprise_endpoints.py", line 349, in download_invoice
+    return Response(
+           ^^^^^^^^^
+  File "/home/habib-qanun/Projects/OCR_Pipeline/venv/lib/python3.12/site-packages/starlette/responses.py", line 46, in __init__
+    self.body = self.render(content)
+                ^^^^^^^^^^^^^^^^^^^^
+  File "/home/habib-qanun/Projects/OCR_Pipeline/venv/lib/python3.12/site-packages/starlette/responses.py", line 54, in render
+    return content.encode(self.charset)  # type: ignore
+           ^^^^^^^^^^^^^^
+AttributeError: 'bytearray' object has no attribute 'encode'. Did you mean: 'decode'?
+
+--------------------------------------------------------------------------------------------------------------------------------------------------------------
+2051   | 2026-02-24   | 14:50:20   | WARNING  | -        | -                            | main.shutdown_event       | OCR Pipeline API SHUTDOWN               
+2052   | 2026-02-24   | 14:50:21   | WARNING  | -        | -                            | logger.setup_file_logging | OCR Pipeline SESSION STARTED at 2026-...
+         Details: OCR Pipeline SESSION STARTED at 2026-02-24 14:50:21
+2053   | 2026-02-24   | 14:50:21   | WARNING  | -        | -                            | logger.setup_file_logging | OCR Pipeline SESSION STARTED at 2026-...
+         Details: OCR Pipeline SESSION STARTED at 2026-02-24 14:50:21
+2054   | 2026-02-24   | 14:50:21   | WARNING  | -        | -                            | main.startup_event        | OCR Pipeline API STARTED - Database i...
+         Details: OCR Pipeline API STARTED - Database initialized successfully
+2055   | 2026-02-24   | 14:51:25   | WARNING  | -        | -                            | main.shutdown_event       | OCR Pipeline API SHUTDOWN               
+2056   | 2026-02-24   | 14:51:26   | WARNING  | -        | -                            | logger.setup_file_logging | OCR Pipeline SESSION STARTED at 2026-...
+         Details: OCR Pipeline SESSION STARTED at 2026-02-24 14:51:26
+2057   | 2026-02-24   | 14:51:26   | WARNING  | -        | -                            | logger.setup_file_logging | OCR Pipeline SESSION STARTED at 2026-...
+         Details: OCR Pipeline SESSION STARTED at 2026-02-24 14:51:26
+2058   | 2026-02-24   | 14:51:26   | WARNING  | -        | -                            | main.startup_event        | OCR Pipeline API STARTED - Database i...
+         Details: OCR Pipeline API STARTED - Database initialized successfully
+2059   | 2026-02-24   | 14:52:56   | WARNING  | -        | -                            | main.shutdown_event       | OCR Pipeline API SHUTDOWN               
+2060   | 2026-02-24   | 14:52:57   | WARNING  | -        | -                            | logger.setup_file_logging | OCR Pipeline SESSION STARTED at 2026-...
+         Details: OCR Pipeline SESSION STARTED at 2026-02-24 14:52:57
+2061   | 2026-02-24   | 14:52:57   | WARNING  | -        | -                            | logger.setup_file_logging | OCR Pipeline SESSION STARTED at 2026-...
+         Details: OCR Pipeline SESSION STARTED at 2026-02-24 14:52:57
+2062   | 2026-02-24   | 14:52:57   | WARNING  | -        | -                            | main.startup_event        | OCR Pipeline API STARTED - Database i...
+         Details: OCR Pipeline API STARTED - Database initialized successfully

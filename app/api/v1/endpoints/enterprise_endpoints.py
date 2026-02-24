@@ -34,7 +34,7 @@ from app.services.enterprise_service import (
     _get_enterprise_orm,
 )
 from app.schemas.enterprise_schemas import EnterpriseOCRDocumentCreate
-from app.services.ocr_service import process_file, detect_file_type
+from app.services.ocr_service import process_file, process_file_auto, detect_file_type, select_ocr_engine
 from app.utils.file_storage import save_uploaded_file
 from app.utils.enterprise_invoice import generate_enterprise_invoice_pdf
 from app.utils.pdf_utils import count_pdf_pages
@@ -347,7 +347,7 @@ async def download_invoice(
     )
     filename = f"enterprise-invoice-{ent_orm.id}-{ent_orm.name.replace(' ', '_')}.pdf"
     return Response(
-        content=pdf_bytes,
+        content=bytes(pdf_bytes),
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
@@ -454,7 +454,13 @@ async def enterprise_ocr(
 
     langs = OCR_MODES.get(mode, ["en"])
     request_start = time.time()
-    result = await process_file(content, langs, mode=mode)
+    # Enterprise OCR always uses process_file_auto; admin/super-users get Mistral
+    result = await process_file_auto(
+        content, langs, mode=mode,
+        user=current_user,
+        user_id=current_user.id,
+        user_email=current_user.email,
+    )
     duration = time.time() - request_start
 
     # Persist file and save DB record
