@@ -45,15 +45,47 @@ async def initiate_subscription_payment(
     db: Session = Depends(get_db),
 ):
     """
-    **Initiate a subscription payment** via PayStation.
+    ## Initiate a subscription payment via PayStation
 
-    - Only available for regular users (role = USER).
-    - Creates a payment record with status **pending**.
-    - Returns a `payment_url` — redirect the user to this URL to complete payment.
-    - Cost: **pages × 10 BDT**.
+    **Role:** Regular users (USER) only.
 
-    After the user completes (or cancels) payment, PayStation will POST to our
-    `/payment/callback` endpoint automatically.
+    **Auth:** `Authorization: Bearer <token>` header required.
+
+    Creates a pending payment record and returns a `payment_url` that the
+    frontend must redirect (or pop-up) the user to in order to complete the
+    transaction. Pricing: **pages × 10 BDT**.
+
+    After the user completes or cancels payment, PayStation posts back to
+    **GET /payment/callback** automatically — no frontend action needed for
+    the confirmation step.
+
+    ### Required fields (JSON body)
+    | Field        | Type   | Required | Description                          |
+    |--------------|--------|----------|--------------------------------------|
+    | pages        | int    | ✔        | Number of OCR pages to purchase      |
+    | cust_name    | string | ✔        | Customer's full name                 |
+    | cust_phone   | string | ✔        | Customer's phone number              |
+    | cust_address | string |          | Customer's address (optional)        |
+
+    ### Response — PaymentInitiateResponse
+    | Field       | Description                                          |
+    |-------------|------------------------------------------------------|
+    | payment_url | URL to redirect the user to for payment completion   |
+    | invoice_number | Unique invoice ID to track this transaction       |
+    | amount      | Total amount in BDT                                  |
+
+    ### Frontend integration
+    ```js
+    const { data } = await axios.post('/api/v1/payment/initiate',
+      { pages: 100, cust_name: 'John', cust_phone: '017...' },
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    // Redirect to PayStation:
+    window.location.href = data.payment_url;
+    // OR open in a popup/iframe
+    ```
+    - HTTP 403 → admin / super-user — they cannot subscribe.
+    - HTTP 502 → PayStation service unavailable.
     """
     _assert_regular_user(current_user)
 
@@ -80,12 +112,28 @@ async def payment_callback(
     db: Session = Depends(get_db),
 ):
     """
-    **PayStation payment callback** (internal — not called by end-users).
+    ## PayStation payment callback (internal — not called by frontend)
 
-    PayStation redirects here via GET with query parameters after every payment
-    attempt:  ?status=Successful&invoice_number=<inv>&trx_id=<id>
+    **Role:** Public — called automatically by PayStation, not by end-users.
 
-    We always return HTTP 200 so PayStation doesn't retry.
+    PayStation redirects here via GET after every payment attempt, with query
+    parameters: `?status=Successful&invoice_number=<inv>&trx_id=<id>`.
+
+    The endpoint updates the payment record and, on success, credits the
+    user's OCR quota. Always returns HTTP 200 so PayStation does not retry.
+
+    ### Query parameters (set by PayStation)
+    | Param          | Description                              |
+    |----------------|------------------------------------------|
+    | status         | `Successful`, `Failed`, or `Canceled`    |
+    | invoice_number | The invoice ID from `/payment/initiate`  |
+    | trx_id         | PayStation transaction reference         |
+
+    ### Frontend integration
+    - **Do not call this endpoint from the frontend.**
+    - After redirecting the user to `payment_url`, listen for the user
+      returning to your site (via PayStation's success/failure redirect URL).
+    - On return, call **GET /subscription/status** to check the updated quota.
     """
     raw = dict(request.query_params)
     logger.info(f"[Callback] Received params: {raw}")
@@ -115,9 +163,28 @@ async def my_payment_history(
     db: Session = Depends(get_db),
 ):
     """
-    **My payment history** — returns the authenticated user's own payment records.
+    ## My payment history
 
-    Records are returned newest-first.
+    **Role:** Any authenticated user (USER / ADMIN / SUPER_USER).
+
+    **Auth:** `Authorization: Bearer <token>` header required.
+
+    Returns the authenticated user's own payment records, newest first.
+
+    ### Query parameters
+    | Param | Type | Default | Description                   |
+    |-------|------|---------|-------------------------------|
+    | skip  | int  | 0       | Pagination offset             |
+    | limit | int  | 50      | Max records to return (max 200)|
+
+    ### Response — PaymentHistoryResponse
+    Contains a `payments` list with `invoice_number`, `amount`, `status`,
+    `pages_purchased`, `created_at`, and `transaction_id` for each record.
+
+    ### Frontend integration
+    - Render in a "Billing History" or "Payment Records" section in settings.
+    - Use `skip` + `limit` for pagination.
+    - Example: `GET /payment/history?skip=0&limit=20`
     """
     return get_user_payment_history(db, user_id=current_user.id, skip=skip, limit=limit)
 
@@ -134,8 +201,25 @@ async def all_payment_history(
     db: Session = Depends(get_db),
 ):
     """
-    **All users' payment history** — available to super_user only.
+    ## All users' payment history (admin view)
 
-    Results are newest-first and can be filtered by `status`.
+    **Role:** SUPER_USER only.
+
+    **Auth:** `Authorization: Bearer <token>` header required.
+
+    Returns payment records for *all* users across the platform,
+    newest first. Available only to super-users for admin / auditing purposes.
+
+    ### Query parameters
+    | Param  | Type   | Default | Description                                      |
+    |--------|--------|---------|--------------------------------------------------|
+    | skip   | int    | 0       | Pagination offset                                |
+    | limit  | int    | 100     | Max records to return (max 500)                  |
+    | status | string | null    | Filter: `pending`, `success`, `failed`, `cancelled` |
+
+    ### Frontend integration
+    - Use in an admin dashboard payments table.
+    - Example: `GET /payment/admin/all?status=success&limit=50`
+    - HTTP 403 → caller is not a SUPER_USER.
     """
     return get_all_payment_history(db, skip=skip, limit=limit, status_filter=status)

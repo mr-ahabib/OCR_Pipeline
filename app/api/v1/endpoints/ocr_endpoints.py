@@ -164,7 +164,53 @@ async def ocr_page_by_page(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_user)
 ):
-    """OCR endpoint that returns formatted page-by-page text with detailed information (requires authentication)"""
+    """
+    ## OCR — page-by-page result (authenticated users only)
+
+    **Role:** Any authenticated user (USER / ADMIN / SUPER_USER).
+
+    **Auth:** `Authorization: Bearer <token>` header required.
+
+    Processes an uploaded document with Google Document AI and returns a
+    structured, page-by-page breakdown of the extracted text. The result is
+    optionally saved to the database for later retrieval via `/documents/`.
+
+    ### Required form fields (multipart/form-data)
+    | Field      | Type    | Default  | Description                                        |
+    |------------|---------|----------|----------------------------------------------------|
+    | file       | file    | —        | Document to process (PDF / JPEG / PNG / TIFF etc.) |
+    | mode       | string  | english  | OCR language: `bangla`, `english`, or `mixed`      |
+    | save_to_db | boolean | true     | Whether to persist the result in the database      |
+
+    ### Limits
+    - Max file size: **50 MB**.
+    - **Free tier** (before subscribing): 1 page per request. Multi-page PDFs
+      are rejected with HTTP 400 unless the user has a paid subscription.
+    - HTTP 402 → quota exhausted — purchase more pages via `/payment/initiate`.
+
+    ### Response
+    ```json
+    {
+      "pages_info": [{ "page_number": 1, "confidence": 97.5, "character_count": 412, "text": "..." }],
+      "summary": { "total_pages": 1, "average_confidence": 97.5, "total_characters": 412, "processing_details": "..." },
+      "quota": { ...SubscriptionStatus }
+    }
+    ```
+
+    ### Frontend integration
+    ```js
+    const form = new FormData();
+    form.append('file', fileInput.files[0]);
+    form.append('mode', 'bangla');
+    form.append('save_to_db', 'true');
+    const { data } = await axios.post('/api/v1/ocr/pages', form, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    ```
+    - Render `pages_info` as a paginated text viewer.
+    - Show `quota.ocr_quota_remaining` to the user as their credit balance.
+    - HTTP 402 → prompt the user to buy a subscription.
+    """
     request_start_time = time.time()
     
     try:
@@ -253,14 +299,62 @@ async def ocr_free_trial(
     db: Session = Depends(get_db)
 ):
     """
-    OCR endpoint for free trial users (no authentication required)
-    Allows 3 free OCR requests per DEVICE (not per browser)
-    
-    Automatically tracks usage via:
-    - Device fingerprint (IP + Accept-Language, NOT User-Agent)
-    - Secure HTTP-only cookie (if user accepts)
-    
-    Returns trial info automatically in response including remaining trials and messages.
+    ## OCR — free trial (no account required)
+
+    **Role:** Public — no authentication required.
+
+    Processes an uploaded document and returns page-by-page OCR results.
+    Designed as the primary entry point for unauthenticated visitors trying
+    the service before registering.
+
+    ### Trial limits (unauthenticated callers)
+    - **3 free requests per device** (tracked by IP + `Accept-Language` header
+      fingerprint, reinforced with an HTTP-only cookie when consent is given).
+    - Max file size: **10 MB**.
+    - Max **1 page** per request — multi-page PDFs are rejected.
+    - HTTP 403 → all 3 trials consumed, must register to continue.
+
+    ### Authenticated callers (token provided in cookie/session)
+    If the caller is already logged in the request is processed as a
+    normal authenticated request against the user's subscription quota
+    (50 MB limit, multi-page PDFs allowed for paid users).
+
+    ### Required form fields (multipart/form-data)
+    | Field | Type   | Default | Description                                       |
+    |-------|--------|---------|---------------------------------------------------|
+    | file  | file   | —       | Document (PDF / JPEG / PNG / TIFF — max 10 MB)   |
+    | mode  | string | english | OCR language: `bangla`, `english`, or `mixed`     |
+
+    ### Response (unauthenticated)
+    ```json
+    {
+      "pages_info": [...],
+      "summary": { ... },
+      "trial_info": {
+        "usage_count": 1,
+        "remaining": 2,
+        "message": "You have 2 free trial(s) remaining.",
+        "needs_cookie_consent": true
+      }
+    }
+    ```
+    If `needs_cookie_consent` is `true`, show a cookie consent banner and POST
+    the user's decision to **POST /ocr/cookie-consent**.
+
+    ### Frontend integration
+    ```js
+    const form = new FormData();
+    form.append('file', fileInput.files[0]);
+    form.append('mode', 'english');
+    // No Authorization header needed
+    const { data } = await axios.post('/api/v1/ocr/free-trial', form, {
+      withCredentials: true  // required for the trial-tracking cookie
+    });
+    if (data.trial_info?.needs_cookie_consent) showCookieBanner();
+    ```
+    - Always pass `withCredentials: true` so the browser sends/stores the
+      `free_trial_id` HTTP-only cookie.
+    - HTTP 403 → show "Trial exhausted — register for more".
     """
     request_start_time = time.time()
     
@@ -410,10 +504,38 @@ async def record_cookie_consent(
     db: Session = Depends(get_db)
 ):
     """
-    Record user's cookie consent decision (accept or reject)
-    
-    This endpoint is called when the user responds to the cookie consent dialog.
-    The consent decision is stored in the database along with the timestamp.
+    ## Record cookie consent decision
+
+    **Role:** Public — no authentication required.
+
+    Called when a free-trial user responds to the cookie consent banner
+    (shown when `trial_info.needs_cookie_consent` is `true` in the
+    `/ocr/free-trial` response). Stores the decision (`accept` or `reject`)
+    with a timestamp so the banner is not shown again.
+
+    The `free_trial_id` HTTP-only cookie **must** be present on the request
+    (it is set automatically by `/ocr/free-trial` on the first call).
+
+    ### Required fields (JSON body)
+    | Field          | Type    | Description                         |
+    |----------------|---------|-------------------------------------|
+    | consent_given  | boolean | `true` = accept, `false` = reject   |
+
+    ### Response
+    ```json
+    { "success": true, "message": "Cookie consent accepted and recorded successfully" }
+    ```
+
+    ### Frontend integration
+    ```js
+    // After user clicks Accept / Reject on the cookie banner:
+    await axios.post('/api/v1/ocr/cookie-consent',
+      { consent_given: userClickedAccept },
+      { withCredentials: true }   // carries the free_trial_id cookie
+    );
+    ```
+    - HTTP 400 → `free_trial_id` cookie missing — user must run `/ocr/free-trial` first.
+    - HTTP 404 → trial user record not found.
     """
     client_ip = request.client.host if request.client else None
     accept_language = request.headers.get("Accept-Language")

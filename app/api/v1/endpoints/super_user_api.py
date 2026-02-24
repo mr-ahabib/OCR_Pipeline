@@ -30,7 +30,35 @@ async def create_admin_user(
     current_user: User = Depends(require_super_user),
     db: Session = Depends(get_db)
 ):
-    """Create an admin user (super user only)"""
+    """
+    ## Create an ADMIN or USER account
+
+    **Role:** SUPER_USER only.
+
+    **Auth:** `Authorization: Bearer <token>` header required.
+
+    Directly creates an account with role `ADMIN` or `USER` — bypassing the
+    OTP email flow used by the public `/auth/register` endpoint. Useful for
+    provisioning staff accounts from the admin panel.
+
+    ### Required fields (JSON body)
+    | Field     | Type   | Description                              |
+    |-----------|--------|------------------------------------------|
+    | username  | string | Unique username                          |
+    | email     | string | Unique email address                     |
+    | password  | string | Initial password (min 6 chars)           |
+    | full_name | string | Display name (optional)                  |
+    | role      | string | `ADMIN` or `USER` — cannot create SUPER_USER |
+
+    ### Response — UserResponse
+    Full profile of the newly created user.
+
+    ### Frontend integration
+    - Use in a "Create User" form in the admin dashboard.
+    - HTTP 409 → username or email already taken.
+    - HTTP 400 → invalid role (only `ADMIN` / `USER` allowed).
+    - HTTP 403 → caller is not a SUPER_USER.
+    """
     if get_user_by_username(db, user_data.username):
         raise ConflictException(detail="Username already registered")
     
@@ -50,7 +78,31 @@ async def delete_user(
     current_user: User = Depends(require_super_user),
     db: Session = Depends(get_db)
 ):
-    """Delete any user (super user only)"""
+    """
+    ## Delete a user account (hard delete)
+
+    **Role:** SUPER_USER only.
+
+    **Auth:** `Authorization: Bearer <token>` header required.
+
+    Permanently removes the user record from the database. This is a
+    hard delete — the action is irreversible.
+
+    ### Path parameter
+    | Param   | Type | Description        |
+    |---------|------|--------------------|
+    | user_id | int  | ID of the user     |
+
+    ### Response
+    `{ "message": "User deleted successfully" }`
+
+    ### Frontend integration
+    - Trigger from an admin "Users" table with a "Delete" action.
+    - Show a confirmation dialog before calling.
+    - HTTP 400 → cannot delete your own account.
+    - HTTP 404 → user not found.
+    - HTTP 403 → caller is not a SUPER_USER.
+    """
     if user_id == current_user.id:
         raise BadRequestException(detail="Cannot delete your own account")
     
@@ -71,6 +123,31 @@ async def list_users(
     current_user: User = Depends(require_super_user),
     db: Session = Depends(get_db)
 ):
-    """List all users (super user only)"""
+    """
+    ## List all users
+
+    **Role:** SUPER_USER only.
+
+    **Auth:** `Authorization: Bearer <token>` header required.
+
+    Returns a paginated list of every user account in the system regardless
+    of role or status.
+
+    ### Query parameters
+    | Param | Type | Default | Description              |
+    |-------|------|---------|--------------------------|
+    | skip  | int  | 0       | Pagination offset        |
+    | limit | int  | 100     | Max records to return    |
+
+    ### Response — List[UserResponse]
+    Each entry includes `id`, `username`, `email`, `role`, `is_active`,
+    `is_verified`, subscription fields, and quota balances.
+
+    ### Frontend integration
+    - Render in an admin "Users" management table.
+    - Use `skip` + `limit` for pagination.
+    - Example: `GET /super-user/users?skip=0&limit=25`
+    - HTTP 403 → caller is not a SUPER_USER.
+    """
     users = db.query(User).offset(skip).limit(limit).all()
     return users

@@ -47,11 +47,29 @@ logger = logging.getLogger(__name__)
 @router.post("/register", response_model=OTPRequest, status_code=status.HTTP_200_OK)
 async def register(user_data: UserCreate, db: Session = Depends(get_db)):
     """
-    Start registration — validates the submitted data and sends a 6-digit OTP
-    to the user's email. The account is **not** created yet.
+    ## Register a new user account (Step 1 of 2)
 
-    Call **/auth/verify-otp** with the code to complete registration and receive
-    an access token (auto-login).
+    **Role:** Public — no authentication required.
+
+    Validates the submitted data and dispatches a 6-digit OTP to the provided
+    email address. The user account is **not** created at this stage.
+
+    ### Required fields (JSON body)
+    | Field     | Type   | Description                         |
+    |-----------|--------|-------------------------------------|
+    | username  | string | Unique username                     |
+    | email     | string | Valid email — OTP is sent here      |
+    | password  | string | Minimum 6 characters                |
+    | full_name | string | User's display name (optional)      |
+
+    ### Response
+    `{ "message": "...", "email": "<submitted email>" }`
+
+    ### Frontend integration
+    1. POST with the registration form data (JSON).
+    2. HTTP 200 → navigate to an OTP entry screen, carry `email` in state.
+    3. HTTP 409 → "Username / Email already taken".
+    4. Next: **POST /auth/verify-otp** with the received OTP code.
     """
     if get_user_by_username(db, user_data.username):
         raise ConflictException(detail="Username already registered")
@@ -79,10 +97,30 @@ async def register(user_data: UserCreate, db: Session = Depends(get_db)):
 @router.post("/verify-otp", response_model=Token, status_code=status.HTTP_201_CREATED)
 async def verify_otp(body: OTPVerifyRequest, db: Session = Depends(get_db)):
     """
-    Verify the 6-digit OTP sent to the user's email.
+    ## Verify OTP and complete registration (Step 2 of 2)
 
-    On success the user account is created, marked as verified, and an access
-    token is returned so the client is immediately logged in.
+    **Role:** Public — no authentication required.
+
+    Validates the 6-digit OTP emailed during `/auth/register`. On success the
+    user account is created, marked as verified, and a JWT is returned so the
+    client is immediately logged in (no extra login step needed).
+
+    ### Required fields (JSON body)
+    | Field | Type   | Description                               |
+    |-------|--------|-------------------------------------------|
+    | email | string | Same email used at registration           |
+    | otp   | string | 6-digit code from the verification email  |
+
+    ### Response
+    ```json
+    { "access_token": "<JWT>", "token_type": "bearer", "user": { ...UserResponse } }
+    ```
+
+    ### Frontend integration
+    1. POST `{ email, otp }` from the OTP entry screen.
+    2. HTTP 201 → store `access_token`, redirect to dashboard.
+    3. HTTP 400 → "Invalid or expired OTP" — let user retry or resend.
+    4. HTTP 409 → account already exists, redirect to login.
     """
     try:
         user_payload = verify_email_otp(db, body.email, body.otp)
@@ -118,8 +156,27 @@ async def verify_otp(body: OTPVerifyRequest, db: Session = Depends(get_db)):
 @router.post("/resend-otp", response_model=OTPRequest, status_code=status.HTTP_200_OK)
 async def resend_otp(body: ResendOTPRequest, db: Session = Depends(get_db)):
     """
-    Resend a fresh OTP to *email*.  Only works if the email is not yet registered.
-    The previously issued OTP is invalidated automatically.
+    ## Resend OTP verification email
+
+    **Role:** Public — no authentication required.
+
+    Generates a new 6-digit OTP and invalidates any previously issued code for
+    the same email. Only works while the email is still in a *pending
+    registration* state (not yet a confirmed account).
+
+    ### Required fields (JSON body)
+    | Field | Type   | Description                              |
+    |-------|--------|------------------------------------------|
+    | email | string | Email used during the original register  |
+
+    ### Response
+    `{ "message": "A new verification code has been sent...", "email": "..." }`
+
+    ### Frontend integration
+    - Render a "Resend Code" button on the OTP entry screen.
+    - Disable for ~60 s after each click to prevent spam.
+    - HTTP 404 → no pending registration found — send user back to `/register`.
+    - HTTP 409 → account already exists — redirect to login.
     """
     from app.models.otp import EmailOTP
     from app.models.otp import EmailOTP
@@ -156,10 +213,36 @@ async def login(
     db: Session = Depends(get_db)
 ):
     """
-    Login with email and password to get access token.
-    
-    **For Swagger UI Authorize**: Enter your **email address** in the 'username' field.
-    This endpoint uses email-based authentication.
+    ## Login with email and password
+
+    **Role:** Public — no authentication required.
+
+    Authenticates the user with their **email address** and password and returns
+    a JWT access token. The form field is named `username` for OAuth2
+    compatibility but **must contain the user's email**.
+
+    ### Required fields (form-data — application/x-www-form-urlencoded)
+    | Field    | Type   | Description              |
+    |----------|--------|--------------------------|
+    | username | string | User's **email address** |
+    | password | string | Account password         |
+
+    ### Response
+    ```json
+    { "access_token": "<JWT>", "token_type": "bearer", "user": { ...UserResponse } }
+    ```
+
+    ### Frontend integration
+    - Send as `application/x-www-form-urlencoded` (standard OAuth2 password flow).
+    - Persist the token (`localStorage` or an HTTP-only cookie).
+    - Attach to every subsequent request: `Authorization: Bearer <token>`.
+    - Axios example:
+      ```js
+      const params = new URLSearchParams({ username: email, password });
+      const { data } = await axios.post('/api/v1/auth/login', params);
+      localStorage.setItem('token', data.access_token);
+      ```
+    - HTTP 401 → "Incorrect email or password".
     """
     user = authenticate_user(db, username, password)
     
@@ -177,7 +260,24 @@ async def login(
 
 @router.get("/me", response_model=UserResponse)
 async def get_current_user_info(current_user: User = Depends(get_current_active_user)):
-    """Get current user information"""
+    """
+    ## Get the currently authenticated user's profile
+
+    **Role:** Any authenticated user (USER / ADMIN / SUPER_USER).
+
+    **Auth:** `Authorization: Bearer <token>` header required.
+
+    Returns the full profile belonging to the owner of the provided JWT,
+    including quota / subscription details.
+
+    ### Response — UserResponse
+    `id`, `username`, `email`, `full_name`, `role`, `is_active`, `is_verified`,
+    `free_ocr_remaining`, `ocr_quota`, `subscription_expires_at`, etc.
+
+    ### Frontend integration
+    - Call on app startup / route guard to hydrate the logged-in user context.
+    - HTTP 401 → token missing or expired — redirect to login.
+    """
     return current_user
 
 
@@ -187,7 +287,28 @@ async def change_password(
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
-    """Change current user's password"""
+    """
+    ## Change the current user's password
+
+    **Role:** Any authenticated user (USER / ADMIN / SUPER_USER).
+
+    **Auth:** `Authorization: Bearer <token>` header required.
+
+    ### Required fields (JSON body)
+    | Field        | Type   | Description                 |
+    |--------------|--------|-----------------------------|
+    | old_password | string | Current (existing) password |
+    | new_password | string | Desired new password        |
+
+    ### Response
+    `{ "message": "Password changed successfully" }`
+
+    ### Frontend integration
+    - Use in a "Change Password" settings screen.
+    - HTTP 400 → "Incorrect old password".
+    - After a successful change, consider clearing stored tokens and forcing
+      re-login to issue a fresh JWT scoped to the new credentials.
+    """
     if not verify_password(password_data.old_password, current_user.hashed_password):
         raise BadRequestException(detail="Incorrect old password")
     
@@ -202,6 +323,40 @@ async def google_sign_in(
     payload: GoogleAuthRequest,
     db: Session = Depends(get_db),
 ):
+    """
+    ## Sign in / sign up via Google OAuth2
+
+    **Role:** Public — no authentication required.
+
+    Accepts a Google **ID token** (obtained on the frontend via the Google
+    Sign-In button / `google.accounts.id` SDK). The token is verified
+    server-side; the endpoint then either logs in the existing account linked
+    to that Google identity or automatically creates a new one.
+
+    ### Required fields (JSON body)
+    | Field    | Type   | Description                                     |
+    |----------|--------|-------------------------------------------------|
+    | id_token | string | Google ID token from `google.accounts.id` SDK   |
+
+    ### Response
+    ```json
+    { "access_token": "<JWT>", "token_type": "bearer", "user": { ...UserResponse } }
+    ```
+
+    ### Frontend integration
+    ```js
+    google.accounts.id.initialize({
+      client_id: GOOGLE_CLIENT_ID,
+      callback: async ({ credential }) => {
+        const { data } = await axios.post('/api/v1/auth/google', { id_token: credential });
+        localStorage.setItem('token', data.access_token);
+      }
+    });
+    ```
+    - HTTP 400 → Google Sign-In is not configured on this server.
+    - HTTP 401 → invalid / expired Google token, or email not verified by Google.
+    - HTTP 401 → account deactivated.
+    """
     if not settings.GOOGLE_CLIENT_ID:
         raise BadRequestException(detail="Google Sign-In is not configured on this server.")
 
