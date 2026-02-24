@@ -250,6 +250,79 @@ async def process_file(file_bytes: bytes, langs: list, mode: str = "english",
         raise
 
 
+# ── language detection ────────────────────────────────────────────────────────
+
+# Map langdetect codes to human-readable names for the "mode" field.
+_LANG_NAMES: dict[str, str] = {
+    "en": "english",
+    "bn": "bangla",
+    "ar": "arabic",
+    "zh-cn": "chinese (simplified)",
+    "zh-tw": "chinese (traditional)",
+    "fr": "french",
+    "de": "german",
+    "hi": "hindi",
+    "id": "indonesian",
+    "it": "italian",
+    "ja": "japanese",
+    "ko": "korean",
+    "ms": "malay",
+    "nl": "dutch",
+    "pl": "polish",
+    "pt": "portuguese",
+    "ru": "russian",
+    "es": "spanish",
+    "sv": "swedish",
+    "th": "thai",
+    "tr": "turkish",
+    "uk": "ukrainian",
+    "ur": "urdu",
+    "vi": "vietnamese",
+}
+
+
+def detect_language(text: str) -> tuple[list[str], str]:
+    """Auto-detect the language(s) in *text* using langdetect.
+
+    Supports 55+ languages.  When multiple languages are detected with
+    significant probability (>= 0.20), all are reported and mode is
+    ``"mixed"``.
+
+    Returns:
+        ``(langs_list, mode_string)`` e.g.
+        ``(["en"], "english")``,
+        ``(["bn"], "bangla")``,
+        ``(["en", "fr"], "mixed")``.
+
+    Falls back to ``(["en"], "english")`` on very short or empty text.
+    """
+    if not text or len(text.strip()) < 10:
+        return ["en"], "english"
+
+    try:
+        from langdetect import detect_langs
+        from langdetect.lang_detect_exception import LangDetectException
+
+        probs = detect_langs(text)  # list of Language(lang, prob)
+
+        # Collect all languages with >= 20 % probability
+        significant = [p for p in probs if p.prob >= 0.20]
+        if not significant:
+            significant = probs[:1]  # fall back to top result
+
+        langs = [p.lang for p in significant]
+
+        if len(langs) == 1:
+            mode = _LANG_NAMES.get(langs[0], langs[0])
+        else:
+            mode = "mixed"
+
+        return langs, mode
+
+    except Exception:
+        return ["en"], "english"
+
+
 # ── engine selection ──────────────────────────────────────────────────────────
 
 def select_ocr_engine(user) -> str:
@@ -370,28 +443,28 @@ async def process_file_mistral(
 
 async def process_file_auto(
     file_bytes: bytes,
-    langs: list,
-    mode: str = "english",
+    langs: Optional[list] = None,
+    mode: str = "auto",
     user=None,
     user_id: Optional[int] = None,
     user_email: Optional[str] = None,
 ) -> dict:
     """Route to Mistral or DocAI based on the caller's role / subscription.
 
-    This is the **single entry point** for all OCR endpoints.  Callers should
-    use this instead of calling ``process_file`` or ``process_file_mistral``
-    directly.
+    Language is always auto-detected from the extracted text — callers should
+    not pass ``langs`` or ``mode``; both are handled internally.
 
     Args:
         file_bytes:  Raw document bytes.
-        langs:       Language hint list (e.g. ``["en"]``).
-        mode:        OCR mode string (``"english"``, ``"bangla"``, ``"mixed"``).
+        langs:       Ignored — kept for backwards compatibility only.
+        mode:        Ignored — language is always auto-detected.
         user:        ``User`` model instance, ``FreeTrialUser``, or ``None``.
         user_id:     User primary key (for logging).
         user_email:  User email address (for logging).
 
     Returns:
-        Structured result dict from either engine.
+        Structured result dict from either engine, with ``mode`` and
+        ``languages`` fields reflecting auto-detected values.
     """
     engine = select_ocr_engine(user)
     logger.info(
@@ -399,13 +472,24 @@ async def process_file_auto(
         f"user_id={user_id} email={user_email}"
     )
 
+    # Pass a broad hint so both engines handle any script.
+    # Caller-supplied langs/mode are intentionally ignored.
+    _langs: list = ["en", "bn"]
+    _mode:  str  = "mixed"
+
     if engine == "mistral":
-        return await process_file_mistral(
-            file_bytes, langs, mode,
+        result = await process_file_mistral(
+            file_bytes, _langs, _mode,
             user_id=user_id, user_email=user_email,
         )
     else:
-        return await process_file(
-            file_bytes, langs, mode,
+        result = await process_file(
+            file_bytes, _langs, _mode,
             user_id=user_id, user_email=user_email,
         )
+
+    # Always override languages/mode with auto-detected values.
+    detected_langs, detected_mode = detect_language(result.get("text", ""))
+    result["languages"] = detected_langs
+    result["mode"]      = detected_mode
+    return result
