@@ -27,10 +27,10 @@ def generate_invoice_pdf(
 
     pdf = FPDF()
     pdf.add_page()
-    pdf.set_auto_page_break(auto=True, margin=20)
+    pdf.set_auto_page_break(auto=False)
 
     # ── Header band ────────────────────────────────────────────────────────────
-    pdf.set_fill_color(30, 64, 175)   # DoceanAI blue
+    pdf.set_fill_color(15, 23, 42)    # dark navy
     pdf.rect(0, 0, 210, 38, "F")
 
     # Brand name
@@ -40,27 +40,27 @@ def generate_invoice_pdf(
     pdf.cell(120, 12, "DoceanAI", ln=0)
 
     # INVOICE label
-    pdf.set_font("Helvetica", "", 11)
-    pdf.set_text_color(186, 210, 255)
-    pdf.set_xy(14, 22)
+    pdf.set_font("Helvetica", "", 10)
+    pdf.set_text_color(148, 163, 184)
+    pdf.set_xy(14, 23)
     pdf.cell(120, 8, "AI-Powered OCR Platform", ln=0)
 
-    pdf.set_font("Helvetica", "B", 20)
+    pdf.set_font("Helvetica", "B", 18)
     pdf.set_text_color(255, 255, 255)
-    pdf.set_xy(140, 10)
-    pdf.cell(56, 10, "INVOICE", align="R", ln=1)
+    pdf.set_xy(140, 9)
+    pdf.cell(56, 10, "INVOICE", align="R", ln=0)
 
     pdf.set_font("Helvetica", "", 9)
-    pdf.set_text_color(186, 210, 255)
-    pdf.set_xy(140, 22)
+    pdf.set_text_color(148, 163, 184)
+    pdf.set_xy(140, 23)
     pdf.cell(56, 8, f"#{invoice_number}", align="R", ln=1)
 
     pdf.set_y(46)
 
     # ── Meta row ───────────────────────────────────────────────────────────────
     pdf.set_text_color(55, 65, 81)
-    pdf.set_font("Helvetica", "B", 9)
-    pdf.set_fill_color(239, 246, 255)
+    pdf.set_font("Helvetica", "B", 8)
+    pdf.set_fill_color(241, 245, 249)
     # Left: bill to
     pdf.set_x(14)
     pdf.cell(85, 6, "BILLED TO", ln=0, fill=False)
@@ -68,10 +68,10 @@ def generate_invoice_pdf(
     pdf.set_x(110)
     pdf.cell(86, 6, "INVOICE DETAILS", ln=1, fill=False)
 
-    pdf.set_font("Helvetica", "", 10)
+    pdf.set_font("Helvetica", "B", 11)
     pdf.set_text_color(17, 24, 39)
     pdf.set_x(14)
-    pdf.cell(85, 6, user_full_name or "—", ln=0)
+    pdf.cell(85, 7, user_full_name or "-", ln=0)
     pdf.set_x(110)
     pdf.set_font("Helvetica", "", 9)
     pdf.set_text_color(75, 85, 99)
@@ -111,9 +111,9 @@ def generate_invoice_pdf(
 
     # ── Line items table ───────────────────────────────────────────────────────
     # Header
-    pdf.set_fill_color(30, 64, 175)
+    pdf.set_fill_color(15, 23, 42)
     pdf.set_text_color(255, 255, 255)
-    pdf.set_font("Helvetica", "B", 9)
+    pdf.set_font("Helvetica", "B", 8)
     col_w = [90, 30, 36, 36]
     headers = ["Description", "Pages", "Unit Price", "Total"]
     aligns = ["L", "C", "R", "R"]
@@ -123,7 +123,7 @@ def generate_invoice_pdf(
     pdf.ln()
 
     # Row
-    pdf.set_fill_color(239, 246, 255)
+    pdf.set_fill_color(241, 245, 249)
     pdf.set_text_color(17, 24, 39)
     pdf.set_font("Helvetica", "", 9)
     pdf.set_x(14)
@@ -147,20 +147,20 @@ def generate_invoice_pdf(
     _total_row("Subtotal:", f"{currency} {payment_amount:.2f}")
     _total_row("Tax / VAT:", "Included")
     pdf.set_x(110)
-    pdf.set_draw_color(30, 64, 175)
+    pdf.set_draw_color(15, 23, 42)
     pdf.line(110, pdf.get_y(), 196, pdf.get_y())
     pdf.ln(1)
-    _total_row("Total Paid:", f"{currency} {payment_amount:.2f}", bold=True, color=(30, 64, 175))
+    _total_row("Total Paid:", f"{currency} {payment_amount:.2f}", bold=True, color=(15, 23, 42))
 
     pdf.ln(10)
 
     # ── Thank you note ─────────────────────────────────────────────────────────
-    pdf.set_fill_color(239, 246, 255)
+    pdf.set_fill_color(241, 245, 249)
     pdf.set_x(14)
     pdf.set_font("Helvetica", "", 9)
-    pdf.set_text_color(55, 65, 81)
+    pdf.set_text_color(75, 85, 99)
     pdf.multi_cell(
-        182, 6,
+        182, 5,
         "Thank you for subscribing to DoceanAI! Your OCR pages have been credited to your "
         "account and are ready to use. For support contact us at support@doceanai.cloud.",
         fill=True,
@@ -168,12 +168,12 @@ def generate_invoice_pdf(
 
     # ── Footer ─────────────────────────────────────────────────────────────────
     pdf.set_y(-20)
-    pdf.set_draw_color(229, 231, 235)
+    pdf.set_draw_color(226, 232, 240)
     pdf.line(14, pdf.get_y(), 196, pdf.get_y())
     pdf.set_font("Helvetica", "", 8)
     pdf.set_text_color(156, 163, 175)
     pdf.set_x(14)
-    pdf.cell(182, 8, "DoceanAI  |  noreply@doceanai.cloud  |  doceanai.cloud", align="C")
+    pdf.cell(182, 8, "DoceanAI  |  support@doceanai.cloud  |  doceanai.cloud", align="C")
 
     # Return bytes
     buf = io.BytesIO()
