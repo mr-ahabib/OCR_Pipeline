@@ -64,6 +64,99 @@ CONVERT_BATCH = int(os.getenv("OCR_CONVERT_BATCH", 4))
 _CONVERSION_THREADS = int(os.getenv("OCR_MAX_CONVERSION_THREADS", min(os.cpu_count() or 8, 16)))
 _EXECUTOR = ThreadPoolExecutor(max_workers=_CONVERSION_THREADS)
 
+# Mistral's API rejects payloads larger than ~50 MB.
+# Files above this threshold are compressed first; if still too large, DocAI is used.
+MISTRAL_MAX_FILE_BYTES = int(os.getenv("MISTRAL_MAX_FILE_BYTES", 50 * 1024 * 1024))
+
+
+# ── file compression helpers ──────────────────────────────────────────────────
+
+def _compress_pdf(pdf_bytes: bytes) -> bytes:
+    """Losslessly compress a PDF using pikepdf stream recompression.
+
+    Rewrites all streams with zlib compression at maximum level and removes
+    redundant cross-reference tables.  Returns the compressed bytes; if the
+    result is not smaller than the input, the original is returned unchanged.
+    """
+    try:
+        import pikepdf
+        with pikepdf.open(io.BytesIO(pdf_bytes)) as pdf:
+            out = io.BytesIO()
+            pdf.save(
+                out,
+                compress_streams=True,
+                recompress_streams=True,
+                normalize_content=False,  # keep content streams intact
+                linearize=False,
+                object_stream_mode=pikepdf.ObjectStreamMode.generate,
+            )
+            compressed = out.getvalue()
+        if len(compressed) < len(pdf_bytes):
+            reduction = (1 - len(compressed) / len(pdf_bytes)) * 100
+            logger.info(
+                f"PDF compressed: {len(pdf_bytes)//1024}KB → "
+                f"{len(compressed)//1024}KB ({reduction:.1f}% reduction)"
+            )
+            return compressed
+        logger.info("PDF compression produced no benefit — keeping original")
+        return pdf_bytes
+    except Exception as exc:
+        logger.warning(f"PDF compression failed ({exc}) — keeping original")
+        return pdf_bytes
+
+
+def _compress_image(img_bytes: bytes, target_bytes: int) -> bytes:
+    """Re-encode an image as a progressive JPEG at descending quality until
+    the result fits within *target_bytes*.  Stops at quality=20 as a floor.
+
+    Returns the smallest result achieved; if even quality=20 exceeds the
+    target the minimum-quality bytes are still returned (caller decides).
+    """
+    try:
+        img = Image.open(io.BytesIO(img_bytes))
+        if img.mode not in ("RGB", "L"):
+            img = img.convert("RGB")
+        best: bytes = img_bytes
+        for quality in (85, 70, 55, 40, 25, 20):
+            buf = io.BytesIO()
+            img.save(buf, format="JPEG", quality=quality, optimize=True, progressive=True)
+            candidate = buf.getvalue()
+            best = candidate
+            if len(candidate) <= target_bytes:
+                logger.info(
+                    f"Image compressed to {len(candidate)//1024}KB "
+                    f"at quality={quality} (target {target_bytes//1024}KB)"
+                )
+                return candidate
+        logger.warning(
+            f"Image could not reach target {target_bytes//1024}KB; "
+            f"best: {len(best)//1024}KB"
+        )
+        return best
+    except Exception as exc:
+        logger.warning(f"Image compression failed ({exc}) — keeping original")
+        return img_bytes
+
+
+def compress_for_mistral(file_bytes: bytes, file_type: str) -> bytes:
+    """Try to compress *file_bytes* to fit within the Mistral API size limit.
+
+    Returns compressed bytes if possible, otherwise the original bytes.
+    Callers should check ``len(result) <= MISTRAL_MAX_FILE_BYTES`` afterwards.
+    """
+    if len(file_bytes) <= MISTRAL_MAX_FILE_BYTES:
+        return file_bytes
+    logger.info(
+        f"Compressing {file_type.upper()} ({len(file_bytes)//1024}KB) for Mistral "
+        f"(limit {MISTRAL_MAX_FILE_BYTES//1024//1024}MB)"
+    )
+    if file_type == "pdf":
+        return _compress_pdf(file_bytes)
+    if file_type == "image":
+        return _compress_image(file_bytes, MISTRAL_MAX_FILE_BYTES)
+    return file_bytes
+
+
 def detect_file_type(file_bytes: bytes) -> str:
     """Detect file type based on magic bytes. Returns 'pdf', 'image', or 'unknown'."""
     if len(file_bytes) < 10:
@@ -467,6 +560,7 @@ async def process_file_auto(
         ``languages`` fields reflecting auto-detected values.
     """
     engine = select_ocr_engine(user)
+
     logger.info(
         f"OCR engine selected: {engine.upper()} | "
         f"user_id={user_id} email={user_email}"
@@ -478,10 +572,47 @@ async def process_file_auto(
     _mode:  str  = "mixed"
 
     if engine == "mistral":
-        result = await process_file_mistral(
-            file_bytes, _langs, _mode,
-            user_id=user_id, user_email=user_email,
-        )
+        mistral_bytes = file_bytes
+
+        # If the file is over Mistral's limit, attempt compression first.
+        if len(file_bytes) > MISTRAL_MAX_FILE_BYTES:
+            loop = asyncio.get_running_loop()
+            file_type_for_compress = detect_file_type(file_bytes)
+            mistral_bytes = await loop.run_in_executor(
+                _EXECUTOR, compress_for_mistral, file_bytes, file_type_for_compress
+            )
+
+        # If still too large after compression, route to DocAI.
+        if len(mistral_bytes) > MISTRAL_MAX_FILE_BYTES:
+            logger.warning(
+                f"File still {len(mistral_bytes)//1024}KB after compression "
+                f"(limit {MISTRAL_MAX_FILE_BYTES//1024//1024}MB) — routing to DocAI | "
+                f"user_id={user_id} email={user_email}"
+            )
+            result = await process_file(
+                file_bytes, _langs, _mode,
+                user_id=user_id, user_email=user_email,
+            )
+        else:
+            try:
+                result = await process_file_mistral(
+                    mistral_bytes, _langs, _mode,
+                    user_id=user_id, user_email=user_email,
+                )
+            except Exception as mistral_err:
+                err_str = str(mistral_err)
+                # Reactively fall back to DocAI on any remaining size/API error.
+                if "413" in err_str or "Payload Too Large" in err_str or "Request size limit" in err_str:
+                    logger.warning(
+                        f"Mistral rejected file despite compression — falling back to DocAI | "
+                        f"user_id={user_id} email={user_email} | error: {err_str}"
+                    )
+                    result = await process_file(
+                        file_bytes, _langs, _mode,
+                        user_id=user_id, user_email=user_email,
+                    )
+                else:
+                    raise
     else:
         result = await process_file(
             file_bytes, _langs, _mode,
