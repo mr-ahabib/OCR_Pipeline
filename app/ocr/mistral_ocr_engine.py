@@ -1,21 +1,3 @@
-"""Mistral OCR engine — premium document processing via Mistral OCR API.
-
-Used for: SUPER_USER, ADMIN, and subscribed regular users.
-
-Capabilities:
-  - Faithfully preserves document structure (headings, paragraphs, lists)
-  - Tables extracted as HTML (<table> tags) — preserves row/column layout
-  - Equations extracted as LaTeX / Unicode inline math in markdown
-  - Embedded images (charts, figures, photos) saved to disk and referenced
-    by a serve-able URL so the front-end can display / verify them
-  - Multi-page PDFs AND standalone images processed in a single API call
-  - Per-page confidence computed dynamically from text quality (no hardcoding)
-
-The output "text" field is structured Markdown with HTML tables and
-``![alt](url)`` image references pointing to the image-serving endpoint.
-``extracted_images`` carries the full list of saved images with their URLs,
-page numbers, and MIME types.
-"""
 import base64
 import logging
 import re
@@ -41,27 +23,64 @@ OCR_IMAGES_SUBDIR = "ocr_images"
 def _compute_page_confidence(text: str) -> float:
     """Compute a confidence score (0–100) from the extracted markdown text.
 
-    Measures the ratio of clean, printable content to total characters.
-    Characters that indicate OCR degradation:
-      - U+FFFD  Unicode replacement character (unrecognised byte sequences)
-      - ASCII control characters other than \\n, \\r, \\t
+    Uses three weighted signals so scores vary meaningfully across documents:
 
-    Formula:
-        confidence = (1 - bad_ratio) * 100, clamped to [50.0, 99.9]
+    Signal 1 — Bad character ratio  (weight 50%):
+        Counts Unicode replacement chars (U+FFFD) and non-printable control
+        characters (except \\n, \\r, \\t).  Clean text scores 1.0 here.
 
-    A perfectly clean page returns ~99.9; heavy noise / encoding failures
-    return proportionally lower values.  No value is ever hardcoded.
+    Signal 2 — Alphanumeric density  (weight 30%):
+        Fraction of the *plain* text (markdown stripped) that consists of
+        letters or digits.  Garbage/symbol-heavy output scores lower.
+
+    Signal 3 — Word plausibility  (weight 20%):
+        Ratio of 2–20 character word-like tokens to all whitespace-separated
+        tokens.  Very short or very long "words" (rubbish sequences) reduce
+        this score.
+
+    Empty page  → 0.0
+    Typical clean page → ~85–95  (not always 99.9)
+    Heavy noise → proportionally lower
     """
     if not text:
         return 0.0
+
     total = len(text)
+
+    # --- Signal 1: bad characters ---
     bad = sum(
         1 for c in text
-        if c == "\ufffd"                                   # replacement char
-        or (ord(c) < 32 and c not in ("\n", "\r", "\t"))  # non-printable control
+        if c == "\ufffd"
+        or (ord(c) < 32 and c not in ("\n", "\r", "\t"))
     )
-    ratio = bad / total
-    return round(min(99.9, max(50.0, (1.0 - ratio) * 100)), 2)
+    bad_score = 1.0 - (bad / total)
+
+    # Strip markdown constructs to measure actual content
+    plain = re.sub(r"!\[[^\]]*\]\([^)]*\)", " ", text)   # image refs
+    plain = re.sub(r"\[[^\]]*\]\([^)]*\)", " ", plain)   # links
+    plain = re.sub(r"```[\s\S]*?```", " ", plain)         # fenced code blocks
+    plain = re.sub(r"`[^`]+`", " ", plain)                # inline code
+    plain = re.sub(r"[#*_~|<>{}\\\-=+]", " ", plain)     # markup symbols
+    plain = re.sub(r"\s+", " ", plain).strip()
+
+    if not plain:
+        return round(min(99.9, max(0.0, bad_score * 50.0)), 2)
+
+    # --- Signal 2: alphanumeric density ---
+    alnum_count = sum(1 for c in plain if c.isalnum())
+    alnum_ratio = alnum_count / len(plain)
+
+    # --- Signal 3: word plausibility ---
+    all_tokens = plain.split()
+    plausible_words = [t for t in all_tokens if 2 <= len(t) <= 20]
+    word_score = len(plausible_words) / max(len(all_tokens), 1)
+
+    confidence = (
+        bad_score   * 50.0
+        + alnum_ratio * 30.0
+        + word_score  * 20.0
+    )
+    return round(min(99.9, max(0.0, confidence)), 2)
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────

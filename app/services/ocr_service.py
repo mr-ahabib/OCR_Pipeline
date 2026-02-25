@@ -65,19 +65,96 @@ _CONVERSION_THREADS = int(os.getenv("OCR_MAX_CONVERSION_THREADS", min(os.cpu_cou
 _EXECUTOR = ThreadPoolExecutor(max_workers=_CONVERSION_THREADS)
 
 # Mistral's API rejects payloads larger than ~50 MB.
-# Files above this threshold are compressed first; if still too large, DocAI is used.
 MISTRAL_MAX_FILE_BYTES = int(os.getenv("MISTRAL_MAX_FILE_BYTES", 50 * 1024 * 1024))
+
+# Files larger than this are compressed before being sent to Mistral.
+# 45 MB gives a comfortable buffer under the 50 MB API limit.
+COMPRESS_THRESHOLD_BYTES = int(os.getenv("COMPRESS_THRESHOLD_BYTES", 45 * 1024 * 1024))
 
 
 # ── file compression helpers ──────────────────────────────────────────────────
 
-def _compress_pdf(pdf_bytes: bytes) -> bytes:
-    """Losslessly compress a PDF using pikepdf stream recompression.
-
-    Rewrites all streams with zlib compression at maximum level and removes
-    redundant cross-reference tables.  Returns the compressed bytes; if the
-    result is not smaller than the input, the original is returned unchanged.
+def _compress_pdf(pdf_bytes: bytes, target_bytes: int) -> bytes:
+    """Compress a PDF using Ghostscript (fastest, best ratio for image-heavy PDFs).
+    Falls back to pikepdf lossless recompression if Ghostscript is unavailable.
     """
+    import subprocess
+    import tempfile
+    import shutil
+    from pathlib import Path as _Path
+
+    # ── Ghostscript path (fastest method) ─────────────────────────────
+    gs = shutil.which("gs") or shutil.which("gswin64c") or shutil.which("gswin32c")
+    if gs:
+        try:
+            with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as inp:
+                inp.write(pdf_bytes)
+                inp_path = inp.name
+            with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as out:
+                out_path = out.name
+
+            # Start with /ebook (150 DPI images) — good quality, fast, ~60-80% reduction
+            result = subprocess.run(
+                [
+                    gs, "-q", "-dNOPAUSE", "-dBATCH", "-dSAFER",
+                    "-sDEVICE=pdfwrite",
+                    "-dCompatibilityLevel=1.6",
+                    "-dPDFSETTINGS=/ebook",   # 150 DPI — fast & high quality
+                    "-dColorImageResolution=150",
+                    "-dGrayImageResolution=150",
+                    "-dMonoImageResolution=300",
+                    f"-sOutputFile={out_path}",
+                    inp_path,
+                ],
+                timeout=120,
+                capture_output=True,
+            )
+            compressed = _Path(out_path).read_bytes()
+            _Path(inp_path).unlink(missing_ok=True)
+            _Path(out_path).unlink(missing_ok=True)
+
+            if result.returncode == 0 and len(compressed) > 0:
+                reduction = (1 - len(compressed) / len(pdf_bytes)) * 100
+                logger.info(
+                    f"GS PDF compressed: {len(pdf_bytes)//1024}KB → "
+                    f"{len(compressed)//1024}KB ({reduction:.1f}% reduction)"
+                )
+                if len(compressed) <= target_bytes:
+                    return compressed
+
+                # Still over target — try /screen (72 DPI, smaller but still readable)
+                with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as inp2:
+                    inp2.write(pdf_bytes)
+                    inp2_path = inp2.name
+                with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as out2:
+                    out2_path = out2.name
+                subprocess.run(
+                    [
+                        gs, "-q", "-dNOPAUSE", "-dBATCH", "-dSAFER",
+                        "-sDEVICE=pdfwrite",
+                        "-dCompatibilityLevel=1.6",
+                        "-dPDFSETTINGS=/screen",
+                        f"-sOutputFile={out2_path}",
+                        inp2_path,
+                    ],
+                    timeout=120,
+                    capture_output=True,
+                )
+                compressed2 = _Path(out2_path).read_bytes()
+                _Path(inp2_path).unlink(missing_ok=True)
+                _Path(out2_path).unlink(missing_ok=True)
+                if len(compressed2) > 0:
+                    reduction2 = (1 - len(compressed2) / len(pdf_bytes)) * 100
+                    logger.info(
+                        f"GS /screen: {len(compressed2)//1024}KB ({reduction2:.1f}% reduction)"
+                    )
+                    # Return whichever is smaller
+                    return compressed2 if len(compressed2) < len(compressed) else compressed
+                return compressed
+        except Exception as exc:
+            logger.warning(f"Ghostscript compression failed ({exc}) — trying pikepdf")
+
+    # ── pikepdf fallback (lossless stream recompression) ─────────────────────
     try:
         import pikepdf
         with pikepdf.open(io.BytesIO(pdf_bytes)) as pdf:
@@ -85,8 +162,8 @@ def _compress_pdf(pdf_bytes: bytes) -> bytes:
             pdf.save(
                 out,
                 compress_streams=True,
-                recompress_streams=True,
-                normalize_content=False,  # keep content streams intact
+                recompress_flate=True,
+                normalize_content=False,
                 linearize=False,
                 object_stream_mode=pikepdf.ObjectStreamMode.generate,
             )
@@ -94,66 +171,69 @@ def _compress_pdf(pdf_bytes: bytes) -> bytes:
         if len(compressed) < len(pdf_bytes):
             reduction = (1 - len(compressed) / len(pdf_bytes)) * 100
             logger.info(
-                f"PDF compressed: {len(pdf_bytes)//1024}KB → "
+                f"pikepdf compressed: {len(pdf_bytes)//1024}KB → "
                 f"{len(compressed)//1024}KB ({reduction:.1f}% reduction)"
             )
             return compressed
-        logger.info("PDF compression produced no benefit — keeping original")
         return pdf_bytes
     except Exception as exc:
-        logger.warning(f"PDF compression failed ({exc}) — keeping original")
+        logger.warning(f"pikepdf compression failed ({exc}) — keeping original")
         return pdf_bytes
 
 
 def _compress_image(img_bytes: bytes, target_bytes: int) -> bytes:
-    """Re-encode an image as a progressive JPEG at descending quality until
-    the result fits within *target_bytes*.  Stops at quality=20 as a floor.
-
-    Returns the smallest result achieved; if even quality=20 exceeds the
-    target the minimum-quality bytes are still returned (caller decides).
+    """Re-encode an image as JPEG, estimating the target quality in one shot
+    rather than iterating, then doing at most one refinement pass.
     """
     try:
         img = Image.open(io.BytesIO(img_bytes))
         if img.mode not in ("RGB", "L"):
             img = img.convert("RGB")
-        best: bytes = img_bytes
-        for quality in (85, 70, 55, 40, 25, 20):
-            buf = io.BytesIO()
-            img.save(buf, format="JPEG", quality=quality, optimize=True, progressive=True)
-            candidate = buf.getvalue()
-            best = candidate
-            if len(candidate) <= target_bytes:
-                logger.info(
-                    f"Image compressed to {len(candidate)//1024}KB "
-                    f"at quality={quality} (target {target_bytes//1024}KB)"
-                )
-                return candidate
-        logger.warning(
-            f"Image could not reach target {target_bytes//1024}KB; "
-            f"best: {len(best)//1024}KB"
+
+        # Estimate quality from size ratio (linear approximation)
+        ratio = target_bytes / len(img_bytes)
+        estimated_quality = max(20, min(85, int(ratio * 90)))
+
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=estimated_quality, optimize=True)
+        result = buf.getvalue()
+
+        if len(result) <= target_bytes:
+            logger.info(
+                f"Image compressed to {len(result)//1024}KB "
+                f"at quality={estimated_quality} (target {target_bytes//1024}KB)"
+            )
+            return result
+
+        # One refinement: if still over, scale quality down proportionally
+        ratio2 = target_bytes / len(result)
+        quality2 = max(15, int(estimated_quality * ratio2))
+        buf2 = io.BytesIO()
+        img.save(buf2, format="JPEG", quality=quality2, optimize=True)
+        result2 = buf2.getvalue()
+        logger.info(
+            f"Image compressed to {len(result2)//1024}KB "
+            f"at quality={quality2} (target {target_bytes//1024}KB)"
         )
-        return best
+        return result2
     except Exception as exc:
         logger.warning(f"Image compression failed ({exc}) — keeping original")
         return img_bytes
 
 
 def compress_for_mistral(file_bytes: bytes, file_type: str) -> bytes:
-    """Try to compress *file_bytes* to fit within the Mistral API size limit.
-
-    Returns compressed bytes if possible, otherwise the original bytes.
-    Callers should check ``len(result) <= MISTRAL_MAX_FILE_BYTES`` afterwards.
+    """Compress *file_bytes* to fit within COMPRESS_THRESHOLD_BYTES (45 MB).
+    Only called when the file exceeds the threshold.
     """
-    if len(file_bytes) <= MISTRAL_MAX_FILE_BYTES:
+    if len(file_bytes) <= COMPRESS_THRESHOLD_BYTES:
         return file_bytes
     logger.info(
-        f"Compressing {file_type.upper()} ({len(file_bytes)//1024}KB) for Mistral "
-        f"(limit {MISTRAL_MAX_FILE_BYTES//1024//1024}MB)"
+        f"Compressing {file_type.upper()} ({len(file_bytes)//1024}KB) → target ≤45MB"
     )
     if file_type == "pdf":
-        return _compress_pdf(file_bytes)
+        return _compress_pdf(file_bytes, COMPRESS_THRESHOLD_BYTES)
     if file_type == "image":
-        return _compress_image(file_bytes, MISTRAL_MAX_FILE_BYTES)
+        return _compress_image(file_bytes, COMPRESS_THRESHOLD_BYTES)
     return file_bytes
 
 
@@ -574,13 +654,15 @@ async def process_file_auto(
     if engine == "mistral":
         mistral_bytes = file_bytes
 
-        # If the file is over Mistral's limit, attempt compression first.
-        if len(file_bytes) > MISTRAL_MAX_FILE_BYTES:
+        # If the file exceeds the 45 MB compression threshold, compress first.
+        if len(file_bytes) > COMPRESS_THRESHOLD_BYTES:
             loop = asyncio.get_running_loop()
             file_type_for_compress = detect_file_type(file_bytes)
             mistral_bytes = await loop.run_in_executor(
                 _EXECUTOR, compress_for_mistral, file_bytes, file_type_for_compress
             )
+        else:
+            mistral_bytes = file_bytes
 
         # If still too large after compression, route to DocAI.
         if len(mistral_bytes) > MISTRAL_MAX_FILE_BYTES:
