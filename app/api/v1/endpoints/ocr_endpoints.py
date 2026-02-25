@@ -216,7 +216,7 @@ async def ocr_page_by_page(
     | save_to_db | boolean | true     | Whether to persist the result in the database      |
 
     ### Limits
-    - Max file size: **300 MB**.
+    - Max file size: **100 MB**.
     - **Free tier** (before subscribing): 1 page per request. Multi-page PDFs
       are rejected with HTTP 400 unless the user has a paid subscription.
     - HTTP 402 → quota exhausted — purchase more pages via `/payment/initiate`.
@@ -254,9 +254,9 @@ async def ocr_page_by_page(
             logger.error(f"EMPTY FILE uploaded: {file.filename}")
             raise HTTPException(status_code=400, detail="Empty file uploaded")
         
-        if len(content) > 300 * 1024 * 1024:
+        if len(content) > 100 * 1024 * 1024:
             logger.error(f"FILE TOO LARGE: {file.filename} ({len(content)//1024//1024}MB)")
-            raise HTTPException(status_code=413, detail="File too large (max 300MB)")
+            raise HTTPException(status_code=413, detail="File too large (max 100MB)")
 
         # Detect and validate file type
         file_type = detect_file_type(content)
@@ -422,9 +422,9 @@ async def ocr_free_trial(
             logger.error(f"EMPTY FILE uploaded: {file.filename}")
             raise HTTPException(status_code=400, detail="Empty file uploaded")
 
-        max_file_size = 300 * 1024 * 1024 if is_registered else 10 * 1024 * 1024
+        max_file_size = 100 * 1024 * 1024 if is_registered else 10 * 1024 * 1024
         if len(content) > max_file_size:
-            size_limit = "300MB" if is_registered else "10MB"
+            size_limit = "100MB" if is_registered else "10MB"
             logger.error(f"FILE TOO LARGE: {file.filename} ({len(content)//1024//1024}MB)")
             raise HTTPException(
                 status_code=413,
