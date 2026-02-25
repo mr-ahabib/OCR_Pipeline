@@ -38,8 +38,10 @@ class Settings:
     LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
     LOG_FILE = os.getenv("LOG_FILE", "app/logs/logs.txt")
     
-    # File Storage Configuration
-    UPLOAD_DIR = os.getenv("UPLOAD_DIR", "app/uploads")
+    # File Storage Configuration — always resolved to an absolute path so the
+    # app works regardless of which directory uvicorn/gunicorn is started from.
+    _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    UPLOAD_DIR = os.getenv("UPLOAD_DIR") or os.path.join(_PROJECT_ROOT, "app", "uploads")
     
     # API Configuration
     # No global request timeout — large PDFs (up to 1000 pages) need unlimited time.

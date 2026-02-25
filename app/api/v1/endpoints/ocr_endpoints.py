@@ -1,5 +1,8 @@
 """OCR API endpoints"""
+import os
+from pathlib import Path
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends, Request, Response
+from fastapi.responses import FileResponse
 import logging
 import time
 from typing import Dict, Any, List, Optional
@@ -17,7 +20,7 @@ from app.utils.file_storage import save_uploaded_file
 from app.utils.pdf_utils import count_pdf_pages
 from app.services.subscription_service import check_and_consume_quota, get_subscription_status
 from app.middleware.auth import require_user, require_user_or_trial, get_user_or_trial
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.models.free_trial_user import FreeTrialUser
 from app.schemas.ocr_schemas import (
     OCRDocumentCreate,
@@ -25,10 +28,48 @@ from app.schemas.ocr_schemas import (
 )
 from app.schemas.free_trial_schemas import CookieConsentRequest
 from app.core.dependencies import get_db
+from app.core.config import settings
 from app.errors.exceptions import ForbiddenException
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+@router.get("/images/{filename}")
+async def serve_ocr_image(filename: str):
+    """
+    ## Serve an OCR-extracted image
+
+    Returns the image file extracted by Mistral OCR from an uploaded document.
+    URLs of this form are embedded inside the `text` / `pages_data[].text`
+    Markdown fields returned by the OCR endpoints.
+
+    **Public** — no authentication required (images are referenced directly
+    from rendered Markdown).
+    """
+    # Sanitise: reject any path traversal attempt
+    if "/" in filename or "\\" in filename or ".." in filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+
+    image_path = Path(settings.UPLOAD_DIR).resolve() / "ocr_images" / filename
+    if not image_path.exists() or not image_path.is_file():
+        raise HTTPException(status_code=404, detail="Image not found")
+
+    # Derive Content-Type from extension
+    ext_map = {
+        ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+        ".png": "image/png", ".gif": "image/gif",
+        ".bmp": "image/bmp", ".webp": "image/webp",
+        ".tiff": "image/tiff", ".tif": "image/tiff",
+    }
+    media_type = ext_map.get(image_path.suffix.lower(), "image/jpeg")
+    return FileResponse(
+        path=str(image_path),
+        media_type=media_type,
+        headers={"Cache-Control": "public, max-age=86400"},  # 24 h browser cache
+    )
+
+
 
 
 def format_plain_text_response(result: Dict[str, Any]) -> Dict[str, str]:
@@ -175,10 +216,12 @@ async def ocr_page_by_page(
     | save_to_db | boolean | true     | Whether to persist the result in the database      |
 
     ### Limits
-    - Max file size: **50 MB**.
+    - Max file size: **300 MB**.
     - **Free tier** (before subscribing): 1 page per request. Multi-page PDFs
       are rejected with HTTP 400 unless the user has a paid subscription.
     - HTTP 402 → quota exhausted — purchase more pages via `/payment/initiate`.
+    - Files over **50 MB** are automatically compressed before processing;
+      Mistral OCR is used where possible, with Google DocAI as fallback.
 
     ### Response
     ```json
@@ -211,9 +254,9 @@ async def ocr_page_by_page(
             logger.error(f"EMPTY FILE uploaded: {file.filename}")
             raise HTTPException(status_code=400, detail="Empty file uploaded")
         
-        if len(content) > 50 * 1024 * 1024:
+        if len(content) > 300 * 1024 * 1024:
             logger.error(f"FILE TOO LARGE: {file.filename} ({len(content)//1024//1024}MB)")
-            raise HTTPException(status_code=413, detail="File too large (max 50MB)")
+            raise HTTPException(status_code=413, detail="File too large (max 300MB)")
 
         # Detect and validate file type
         file_type = detect_file_type(content)
@@ -233,7 +276,9 @@ async def ocr_page_by_page(
             pages_in_file = 1
 
         # Authenticated users on free tier: 1 page max per request
-        if current_user.free_ocr_remaining > 0 and pages_in_file > 1:
+        # ADMIN and SUPER_USER are exempt from this restriction
+        is_privileged = current_user.role in (UserRole.ADMIN, UserRole.SUPER_USER)
+        if not is_privileged and current_user.free_ocr_remaining > 0 and pages_in_file > 1:
             raise HTTPException(
                 status_code=400,
                 detail=(
@@ -377,9 +422,9 @@ async def ocr_free_trial(
             logger.error(f"EMPTY FILE uploaded: {file.filename}")
             raise HTTPException(status_code=400, detail="Empty file uploaded")
 
-        max_file_size = 50 * 1024 * 1024 if is_registered else 10 * 1024 * 1024
+        max_file_size = 300 * 1024 * 1024 if is_registered else 10 * 1024 * 1024
         if len(content) > max_file_size:
-            size_limit = "50MB" if is_registered else "10MB"
+            size_limit = "300MB" if is_registered else "10MB"
             logger.error(f"FILE TOO LARGE: {file.filename} ({len(content)//1024//1024}MB)")
             raise HTTPException(
                 status_code=413,

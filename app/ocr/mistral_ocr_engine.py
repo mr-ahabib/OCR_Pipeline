@@ -122,31 +122,36 @@ def _mime_to_ext(mime: str) -> str:
 
 
 def get_ocr_images_dir() -> Path:
-    """Return the directory where OCR-extracted images are stored (created if needed)."""
-    p = Path(settings.UPLOAD_DIR) / OCR_IMAGES_SUBDIR
+    """Return the absolute directory where OCR-extracted images are stored (created if needed)."""
+    p = Path(settings.UPLOAD_DIR).resolve() / OCR_IMAGES_SUBDIR
     p.mkdir(parents=True, exist_ok=True)
     return p
 
 
 def _build_image_url(filename: str) -> str:
-    """Build the full public URL for a saved OCR image."""
+    """Build the URL for a saved OCR image.
+
+    Uses API_BASE_URL if configured (e.g. https://api.example.com), otherwise
+    falls back to a relative path that works for same-origin frontend requests.
+    """
     base = (settings.API_BASE_URL or "").rstrip("/")
-    return f"{base}/api/v1/ocr/images/{filename}"
+    if base:
+        return f"{base}/api/v1/ocr/images/{filename}"
+    return f"/api/v1/ocr/images/{filename}"
 
 
 def save_ocr_image_b64(b64_str: str, page_num: int) -> dict:
     """Decode a base64 image string, save it to disk, and return metadata.
 
-    Returns::
-
-        {
-            "filename": "ocr_img_<uuid>.jpg",
-            "url":      "https://…/api/v1/ocr/images/ocr_img_<uuid>.jpg",
-            "mime":     "image/jpeg",
-            "page":     1,
-            "size_kb":  45.3,
-        }
+    Mistral returns image_base64 with a data URI prefix such as
+    ``data:image/jpeg;base64,/9j/4AAQ...`` — this function strips it before
+    decoding so the saved file is a valid image.
     """
+    # Strip data URI prefix if present: "data:<mime>;base64,<data>"
+    if b64_str.startswith("data:"):
+        # everything after the first comma is the actual base64 payload
+        b64_str = b64_str.split(",", 1)[-1]
+
     mime      = _detect_base64_mime(b64_str)
     ext       = _mime_to_ext(mime)
     filename  = f"ocr_img_{uuid.uuid4().hex}.{ext}"
@@ -167,11 +172,9 @@ def save_ocr_image_b64(b64_str: str, page_num: int) -> dict:
 def _replace_images_with_urls(
     markdown: str, images: list, page_num: int
 ) -> tuple[str, list]:
-    """Save each extracted image to disk and replace ``![id](id)`` tokens with
-    a serve-able URL reference.
-
-    Returns:
-        (updated_markdown, image_records_list)
+    """Save each extracted image to disk and replace Mistral's internal
+    ``![id](id)`` tokens with standard ``![alt](url)`` pointing to the
+    image-serving endpoint.
     """
     if not images:
         return markdown, []
@@ -195,18 +198,21 @@ def _replace_images_with_urls(
     if not record_map:
         return markdown, image_records
 
+    def _lookup(ref: str):
+        if ref in record_map:
+            return record_map[ref]
+        for k, v in record_map.items():
+            if k.startswith(ref) or ref.startswith(k):
+                return v
+        return None
+
     def _replace(match: re.Match) -> str:
-        alt = match.group(1)
+        alt = match.group(1) or "image"
         ref = match.group(2)
-        rec = record_map.get(ref)
+        rec = _lookup(ref)
         if rec is None:
-            for k, v in record_map.items():
-                if k.startswith(ref) or ref.startswith(k):
-                    rec = v
-                    break
-        if rec:
-            return f"![{alt or 'extracted image'}]({rec['url']})"
-        return match.group(0)
+            return match.group(0)
+        return f"![{alt}]({rec['url']})"
 
     updated_md = re.sub(r"!\[([^\]]*)\]\(([^)\s]+)\)", _replace, markdown)
     return updated_md, image_records
