@@ -243,7 +243,12 @@ def generate_enterprise_invoice_pdf(
     pdf.set_x(14)
     pdf.cell(182, 8, "DoceanAI  |  accounts@doceanai.cloud  |  doceanai.cloud", align="C")
 
-    output = pdf.output()
-    if isinstance(output, (bytes, bytearray)):
-        return bytes(output)
-    return output.encode("latin-1")
+    # PyFPDF 1.x: output(dest='S') returns the PDF as a str
+    # fpdf2:       output()          returns bytearray (no dest param)
+    try:
+        raw = pdf.output(dest='S')  # PyFPDF 1.x
+    except TypeError:
+        raw = pdf.output()          # fpdf2
+    if isinstance(raw, (bytes, bytearray)):
+        return bytes(raw)
+    return raw.encode('latin-1')
