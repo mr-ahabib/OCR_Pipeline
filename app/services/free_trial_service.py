@@ -1,7 +1,7 @@
 """Free trial service for managing anonymous user trials"""
 from sqlalchemy.orm import Session
 from typing import Optional, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
 import hashlib
 import uuid
 
@@ -47,7 +47,7 @@ def get_or_create_free_trial_user(
     ).first()
     
     if trial_user:
-        trial_user.last_used_at = datetime.utcnow()
+        trial_user.last_used_at = datetime.now(timezone.utc)
         if cookie_id and not trial_user.cookie_id:
             trial_user.cookie_id = cookie_id
         if user_agent:
@@ -65,7 +65,7 @@ def get_or_create_free_trial_user(
         
         if trial_user:
             trial_user.device_id = device_fingerprint
-            trial_user.last_used_at = datetime.utcnow()
+            trial_user.last_used_at = datetime.now(timezone.utc)
             if user_agent:
                 trial_user.user_agent = user_agent
             if ip_address:
@@ -118,7 +118,7 @@ def check_and_increment_usage(
         }
     
     trial_user.usage_count += 1
-    trial_user.last_used_at = datetime.utcnow()
+    trial_user.last_used_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(trial_user)
     
@@ -228,7 +228,7 @@ def update_cookie_consent(
     
     # Update consent information
     trial_user.cookie_consent_given = consent_given
-    trial_user.cookie_consent_at = datetime.utcnow()
+    trial_user.cookie_consent_at = datetime.now(timezone.utc)
     
     # If accepted, ensure cookie_id is set
     if consent_given and cookie_id:

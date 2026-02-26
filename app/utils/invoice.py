@@ -1,10 +1,19 @@
 """Invoice PDF generator — uses fpdf2 (already in requirements.txt)."""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fpdf import FPDF
+
+
+def _resolve_tz(tz_name: str) -> ZoneInfo:
+    """Return a ZoneInfo for *tz_name*, falling back to UTC on invalid names."""
+    try:
+        return ZoneInfo(tz_name)
+    except (ZoneInfoNotFoundError, KeyError):
+        return ZoneInfo("UTC")
 
 
 def generate_invoice_pdf(
@@ -15,13 +24,16 @@ def generate_invoice_pdf(
     payment_amount: float,
     currency: str,
     paid_at: Optional[datetime] = None,
+    display_timezone: str = "UTC",
 ) -> bytes:
     """
     Generate a professional invoice PDF for a DoceanAI subscription payment.
     Returns raw PDF bytes ready for email attachment or download.
     """
-    date_str = (paid_at or datetime.utcnow()).strftime("%B %d, %Y")
-    time_str = (paid_at or datetime.utcnow()).strftime("%I:%M %p UTC")
+    tz = _resolve_tz(display_timezone)
+    _ts = (paid_at or datetime.now(timezone.utc)).astimezone(tz)
+    date_str = _ts.strftime("%B %d, %Y")
+    time_str = _ts.strftime("%I:%M %p %Z")
     cost_per_page = payment_amount / pages_purchased if pages_purchased else 0
 
     pdf = FPDF()

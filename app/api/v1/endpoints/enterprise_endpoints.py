@@ -297,6 +297,7 @@ async def delete_enterprise_endpoint(
 @router.get("/{enterprise_id}/invoice")
 async def download_invoice(
     enterprise_id: int,
+    tz: str            = Query("UTC", description="IANA timezone for invoice display, e.g. Asia/Dhaka, America/New_York"),
     current_user:  User    = Depends(require_admin),
     db:            Session = Depends(get_db),
 ):
@@ -342,6 +343,7 @@ async def download_invoice(
     pdf_bytes = generate_enterprise_invoice_pdf(
         enterprise=ent_orm,
         creator_name=creator_name,
+        display_timezone=tz,
     )
     filename = f"enterprise-invoice-{ent_orm.id}-{ent_orm.name.replace(' ', '_')}.pdf"
     return Response(

@@ -2,7 +2,7 @@
 import os
 import uuid
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 from app.core.config import settings
 
 
@@ -11,7 +11,7 @@ def generate_unique_filename(original_filename: str) -> str:
     Generate a unique filename using timestamp and UUID
     Format: YYYYMMDD_HHMMSS_uuid_originalname
     """
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     unique_id = str(uuid.uuid4())[:8]
     
     # Clean original filename and preserve extension

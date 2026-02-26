@@ -1,5 +1,5 @@
 """Authentication service with password hashing and JWT"""
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 import random
 import string
@@ -37,9 +37,9 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     """
     to_encode = data.copy()
     if expires_delta:
-        expire = datetime.utcnow() + expires_delta
+        expire = datetime.now(timezone.utc) + expires_delta
     else:
-        expire = datetime.utcnow() + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+        expire = datetime.now(timezone.utc) + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
@@ -89,7 +89,7 @@ def authenticate_user(db: Session, email: str, password: str) -> Optional[User]:
     if not user.is_active:
         return None
     
-    user.last_login = datetime.utcnow()
+    user.last_login = datetime.now(timezone.utc)
     db.commit()
     
     return user
@@ -147,7 +147,7 @@ def get_or_create_google_user(db: Session, google_id: str, email: str, full_name
     # 1. Look up by google_id
     user = db.query(User).filter(User.google_id == google_id).first()
     if user:
-        user.last_login = datetime.utcnow()
+        user.last_login = datetime.now(timezone.utc)
         db.commit()
         return user
 
@@ -159,7 +159,7 @@ def get_or_create_google_user(db: Session, google_id: str, email: str, full_name
         user.is_verified = True
         if full_name and not user.full_name:
             user.full_name = full_name
-        user.last_login = datetime.utcnow()
+        user.last_login = datetime.now(timezone.utc)
         db.commit()
         db.refresh(user)
         return user
@@ -210,7 +210,7 @@ def create_email_otp(db: Session, email: str, user_data: dict) -> str:
     ).update({"is_used": True})
 
     otp_code = generate_otp()
-    expires_at = datetime.utcnow() + timedelta(minutes=settings.OTP_EXPIRE_MINUTES)
+    expires_at = datetime.now(timezone.utc) + timedelta(minutes=settings.OTP_EXPIRE_MINUTES)
 
     otp_row = EmailOTP(
         email=email,
@@ -244,7 +244,7 @@ def verify_email_otp(db: Session, email: str, otp_code: str) -> Optional[dict]:
     if otp_row is None:
         raise ValueError("No active OTP found for this email. Please request a new one.")
 
-    if datetime.utcnow() > otp_row.expires_at:
+    if datetime.now(timezone.utc) > otp_row.expires_at:
         otp_row.is_used = True
         db.commit()
         raise ValueError("OTP has expired. Please request a new one.")

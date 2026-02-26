@@ -1,6 +1,6 @@
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -159,7 +159,7 @@ def setup_file_logging(log_level: int = logging.WARNING) -> logging.Logger:
     logging.basicConfig(level=log_level, handlers=[file_handler, console_handler], force=True)
 
     logger = logging.getLogger(__name__)
-    logger.warning("OCR Pipeline SESSION STARTED at %s", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+    logger.warning("OCR Pipeline SESSION STARTED at %s", datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"))
     return logger
 
 

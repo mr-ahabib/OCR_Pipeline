@@ -28,10 +28,10 @@ class EmailOTP(Base):
     # without asking the client to resend all fields at verification time.
     user_data = Column(JSON, nullable=False)
 
-    expires_at = Column(DateTime(timezone=False), nullable=False)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
     is_used = Column(Boolean, default=False, nullable=False)
     created_at = Column(
-        DateTime(timezone=False), server_default=func.now(), nullable=False
+        DateTime(timezone=True), server_default=func.now(), nullable=False
     )
 
     def __repr__(self) -> str:

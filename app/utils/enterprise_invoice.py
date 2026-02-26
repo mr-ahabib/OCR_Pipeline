@@ -1,12 +1,21 @@
 """Enterprise invoice PDF generator - uses fpdf2 (already in requirements.txt)."""
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from typing import Optional
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fpdf import FPDF
 
 from app.models.enterprise import Enterprise, EnterprisePaymentStatus
+
+
+def _resolve_tz(tz_name: str) -> ZoneInfo:
+    """Return a ZoneInfo for *tz_name*, falling back to UTC on invalid names."""
+    try:
+        return ZoneInfo(tz_name)
+    except (ZoneInfoNotFoundError, KeyError):
+        return ZoneInfo("UTC")
 
 
 # Status colour palette
@@ -27,15 +36,17 @@ def generate_enterprise_invoice_pdf(
     creator_name: str = "",
     invoice_number: Optional[str] = None,
     generated_at: Optional[datetime] = None,
+    display_timezone: str = "UTC",
 ) -> bytes:
     """
     Generate a professional enterprise invoice PDF.
     Returns raw PDF bytes suitable for a download endpoint.
     """
-    now       = generated_at or datetime.utcnow()
+    tz = _resolve_tz(display_timezone)
+    now       = (generated_at or datetime.now(timezone.utc)).astimezone(tz)
     inv_no    = invoice_number or f"ENT-{enterprise.id:06d}"
     date_str  = now.strftime("%B %d, %Y")
-    time_str  = now.strftime("%I:%M %p UTC")
+    time_str  = now.strftime("%I:%M %p %Z")
 
     status_color = _STATUS_COLORS.get(enterprise.payment_status, (75, 85, 99))
     status_label = _STATUS_LABELS.get(enterprise.payment_status, str(enterprise.payment_status))
