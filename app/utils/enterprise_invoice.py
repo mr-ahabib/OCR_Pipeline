@@ -243,4 +243,7 @@ def generate_enterprise_invoice_pdf(
     pdf.set_x(14)
     pdf.cell(182, 8, "DoceanAI  |  accounts@doceanai.cloud  |  doceanai.cloud", align="C")
 
-    return pdf.output()
+    output = pdf.output()
+    if isinstance(output, (bytes, bytearray)):
+        return bytes(output)
+    return output.encode("latin-1")

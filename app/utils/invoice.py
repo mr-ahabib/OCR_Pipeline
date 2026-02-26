@@ -179,5 +179,8 @@ def generate_invoice_pdf(
     pdf.set_x(14)
     pdf.cell(182, 8, "DoceanAI  |  support@doceanai.cloud  |  doceanai.cloud", align="C")
 
-    # Return bytes (fpdf2: output() returns bytearray; cast to bytes for compatibility)
-    return bytes(pdf.output())
+    # Return bytes — fpdf2 returns bytearray, PyFPDF 1.x returns str
+    output = pdf.output()
+    if isinstance(output, (bytes, bytearray)):
+        return bytes(output)
+    return output.encode("latin-1")

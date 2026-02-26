@@ -347,7 +347,7 @@ async def download_invoice(
     )
     filename = f"enterprise-invoice-{ent_orm.id}-{ent_orm.name.replace(' ', '_')}.pdf"
     return Response(
-        content=bytes(pdf_bytes),
+        content=pdf_bytes,
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
