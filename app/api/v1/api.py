@@ -4,6 +4,7 @@ from app.api.v1.endpoints import ocr_endpoints, document_endpoints, auth_endpoin
 from app.api.v1.endpoints import subscription_endpoints
 from app.api.v1.endpoints import payment_endpoints
 from app.api.v1.endpoints import enterprise_endpoints
+from app.api.v1.endpoints import superuser_dashboard, admin_dashboard, user_dashboard
 
 api_router = APIRouter()
 
@@ -14,3 +15,8 @@ api_router.include_router(document_endpoints.router,    prefix="/documents",   t
 api_router.include_router(subscription_endpoints.router,prefix="/subscription",tags=["Subscription"])
 api_router.include_router(payment_endpoints.router,     prefix="/payment",     tags=["Payment"])
 api_router.include_router(enterprise_endpoints.router,  prefix="/enterprise",  tags=["Enterprise"])
+
+# ── Dashboard endpoints (role-specific views) ─────────────────────────────────
+api_router.include_router(superuser_dashboard.router,   prefix="/dashboard/super-user", tags=["Dashboard — Super User"])
+api_router.include_router(admin_dashboard.router,       prefix="/dashboard/admin",      tags=["Dashboard — Admin"])
+api_router.include_router(user_dashboard.router,        prefix="/dashboard/user",       tags=["Dashboard — User"])

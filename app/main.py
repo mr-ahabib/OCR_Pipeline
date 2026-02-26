@@ -93,22 +93,3 @@ async def shutdown_event():
     logger.warning(f"{settings.PROJECT_NAME} SHUTDOWN")
 
 
-@app.get("/")
-async def root():
-    """Root endpoint"""
-    return {
-        "message": "OCR Pipeline API",
-        "version": settings.PROJECT_VERSION,
-        "docs": "/docs",
-        "api": settings.API_V1_STR
-    }
-
-
-@app.get("/health")
-async def health_check():
-    """Health check endpoint"""
-    return {
-        "status": "healthy",
-        "environment": settings.ENVIRONMENT
-    }
-
