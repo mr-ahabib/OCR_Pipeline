@@ -237,12 +237,74 @@ def _replace_images_with_urls(
     return updated_md, image_records
 
 
+def _replace_tables_with_content(markdown: str, tables) -> str:
+    """Replace Mistral table placeholder links with their actual content.
+
+    When ``table_format="markdown"`` (or ``"html"``), Mistral embeds tables
+    in the page markdown as link references::
+
+        [tbl-0.md](tbl-0.md)
+
+    Each table's real content lives in ``page.tables[i].content``.
+    This function builds a lookup map from table ``id`` → ``content`` and
+    substitutes every placeholder so the final markdown contains the actual
+    table rows instead of dead links.
+    """
+    if not tables:
+        return markdown
+
+    # Build id → content map  (id is e.g. "tbl-0", link is "[tbl-0.md](tbl-0.md)")
+    table_map: dict[str, str] = {}
+    for tbl in tables:
+        tbl_id      = getattr(tbl, "id",      None)
+        tbl_content = getattr(tbl, "content", None)
+        if tbl_id and tbl_content:
+            table_map[tbl_id] = tbl_content
+
+    if not table_map:
+        return markdown
+
+    def _replace_table(match: re.Match) -> str:
+        # match.group(1) is the link text, e.g. "tbl-0.md"
+        # Derive the table id by stripping the ".md" suffix
+        link_text = match.group(1)
+        tbl_id    = link_text[:-3] if link_text.endswith(".md") else link_text
+        content   = table_map.get(tbl_id)
+        if content is None:
+            # Try partial/prefix matching as a fallback
+            for k, v in table_map.items():
+                if k.startswith(tbl_id) or tbl_id.startswith(k):
+                    content = v
+                    break
+        return content if content is not None else match.group(0)
+
+    # Match only plain (non-image) links: [text](text)  — no leading "!"
+    return re.sub(r"(?<!!)\[([^\]]+\.md)\]\([^)]+\.md\)", _replace_table, markdown)
+
+
 # ── main sync worker (runs in thread pool) ───────────────────────────────────
 
-def _run_mistral_ocr_sync(file_bytes: bytes, file_type: str) -> dict:
+def _run_mistral_ocr_sync(
+    file_bytes: bytes,
+    file_type: str,
+    *,
+    table_format: str = "markdown",
+    extract_header: bool = True,
+    extract_footer: bool = True,
+) -> dict:
     """Blocking Mistral OCR call.  Called via ``run_mistral_ocr`` (async wrapper).
 
     Accepts both ``"pdf"`` and ``"image"`` (JPEG, PNG, BMP, WebP, TIFF, GIF).
+
+    Args:
+        file_bytes:      Raw document bytes.
+        file_type:       ``"pdf"`` or ``"image"``.
+        table_format:    ``"markdown"`` (default, inline pipe tables) or
+                         ``"html"`` (<table> elements).  ``"markdown"`` matches
+                         the *Inline markdown* option in Mistral Studio and
+                         renders correctly in all markdown viewers.
+        extract_header:  Extract page header text (default True).
+        extract_footer:  Extract page footer text (default True).
 
     Returns a dict with:
         pages_data       – list of per-page dicts; confidence is computed
@@ -282,8 +344,10 @@ def _run_mistral_ocr_sync(file_bytes: bytes, file_type: str) -> dict:
     ocr_response = client.ocr.process(
         model="mistral-ocr-latest",
         document=document,
-        table_format="html",        # Tables as <table> HTML — preserves structure
-        include_image_base64=True,  # Return extracted images as base64
+        table_format=table_format,       # "markdown" → inline pipe tables (default)
+        include_image_base64=True,       # Return extracted images as base64
+        extract_header=extract_header,   # Capture page headers
+        extract_footer=extract_footer,   # Capture page footers
     )
 
     elapsed = time.time() - t0
@@ -298,12 +362,24 @@ def _run_mistral_ocr_sync(file_bytes: bytes, file_type: str) -> dict:
         page_num = page.index + 1   # Mistral pages are 0-indexed
         raw_md   = page.markdown or ""
         images   = page.images or []
+        tables   = page.tables  or []
 
-        # Save images to disk → replace markdown refs with public URLs
+        # 1. Replace table placeholder links with real table content
+        md_with_tables = _replace_tables_with_content(raw_md, tables)
+
+        # 2. Save images to disk → replace markdown refs with public URLs
         md_with_urls, page_image_records = _replace_images_with_urls(
-            raw_md, images, page_num
+            md_with_tables, images, page_num
         )
         all_image_records.extend(page_image_records)
+
+        # 3. Prepend header / append footer if Mistral extracted them
+        header_text = getattr(page, "header", None) or ""
+        footer_text = getattr(page, "footer", None) or ""
+        if header_text:
+            md_with_urls = header_text.strip() + "\n\n" + md_with_urls
+        if footer_text:
+            md_with_urls = md_with_urls + "\n\n" + footer_text.strip()
 
         # Compute confidence dynamically from actual text quality
         conf = _compute_page_confidence(md_with_urls)
@@ -349,11 +425,12 @@ def _run_mistral_ocr_sync(file_bytes: bytes, file_type: str) -> dict:
         "engine":           "Mistral OCR",
         "features": [
             "Structure-preserving markdown output",
-            "HTML table extraction",
+            "Inline markdown table extraction (pipe tables)",
             "LaTeX / math equation extraction",
             "Extracted images served via URL",
             "Dynamic per-page confidence scoring",
             "Auto language detection",
+            "Header and footer extraction",
             "Multi-page PDF and standalone image support",
         ],
     }
@@ -361,17 +438,37 @@ def _run_mistral_ocr_sync(file_bytes: bytes, file_type: str) -> dict:
 
 # ── public async API ──────────────────────────────────────────────────────────
 
-async def run_mistral_ocr(file_bytes: bytes, file_type: str) -> dict:
+async def run_mistral_ocr(
+    file_bytes: bytes,
+    file_type: str,
+    *,
+    table_format: str = "markdown",
+    extract_header: bool = True,
+    extract_footer: bool = True,
+) -> dict:
     """Async wrapper: run Mistral OCR in a thread pool.
 
     Args:
-        file_bytes: Raw document bytes (PDF or any image format).
-        file_type:  ``"pdf"`` or ``"image"``.
+        file_bytes:      Raw document bytes (PDF or any image format).
+        file_type:       ``"pdf"`` or ``"image"``.
+        table_format:    ``"markdown"`` (default) for inline pipe tables that
+                         render in all markdown viewers, or ``"html"`` for
+                         ``<table>`` elements.  Matches the *Inline markdown*
+                         option shown in Mistral Studio.
+        extract_header:  Include page header text in the output (default True).
+        extract_footer:  Include page footer text in the output (default True).
 
     Returns the structured dict from ``_run_mistral_ocr_sync``.
     """
     import asyncio
+    from functools import partial
     loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(
-        _EXECUTOR, _run_mistral_ocr_sync, file_bytes, file_type
+    fn = partial(
+        _run_mistral_ocr_sync,
+        file_bytes,
+        file_type,
+        table_format=table_format,
+        extract_header=extract_header,
+        extract_footer=extract_footer,
     )
+    return await loop.run_in_executor(_EXECUTOR, fn)
