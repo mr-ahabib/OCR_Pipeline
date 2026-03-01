@@ -237,6 +237,159 @@ def _replace_images_with_urls(
     return updated_md, image_records
 
 
+def _normalize_table_markdown(content: str) -> str:
+    """Normalize a markdown table so it renders correctly in any markdown parser.
+
+    Handles all quirks that Mistral OCR produces:
+
+    1. **Embedded newlines in cells** — Mistral puts real ``\\n`` inside cell
+       text (e.g. ``| ৩\\nশাখা | ...``).  Parser treats those as new rows,
+       breaking the table.  We rejoin continuation lines (lines that don't
+       start with ``|``) onto the previous row with a space.
+
+    2. **Cross-page orphan rows** — When a large table spans multiple PDF
+       pages, the first page's final partial rows overflow into the next
+       page's table content, appearing *before* the ``| --- |`` separator.
+       Standard markdown requires exactly one header row above ``| --- |``;
+       additional rows above it become garbled fake headers.  We detect these
+       orphan pre-separator rows and either:
+       - promote them to regular body rows (after the separator), or
+       - strip them if they are entirely empty / just punctuation.
+
+    3. **Multiple consecutive blank lines** — squeezed to a single blank.
+
+    4. **Extra spaces inside cells** — collapsed to single spaces.
+
+    5. **Missing separator** — if the table has data rows but no ``| --- |``
+       we insert one after the first row so it renders as a valid table.
+    """
+    # ── Step 1: join continuation (non-pipe) lines back onto their row ──────
+    lines   = content.splitlines()
+    joined  = []
+    pending = ""
+
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            if pending:
+                joined.append(pending)
+                pending = ""
+            joined.append("")
+            continue
+
+        if stripped.startswith("|"):
+            if pending:
+                joined.append(pending)
+            pending = stripped
+        else:
+            # continuation of the previous cell
+            if pending:
+                pending = pending.rstrip() + " " + stripped
+            else:
+                pending = stripped
+
+    if pending:
+        joined.append(pending)
+
+    # ── Step 2: collapse extra spaces inside cells ───────────────────────────
+    rows: list[str] = []
+    for row in joined:
+        if row.startswith("|"):
+            row = re.sub(r" {2,}", " ", row)
+        rows.append(row)
+
+    # Remove leading/trailing blank lines
+    while rows and not rows[0]:
+        rows.pop(0)
+    while rows and not rows[-1]:
+        rows.pop()
+
+    if not rows:
+        return content  # nothing to fix
+
+    # ── Step 3: fix cross-page orphan rows above | --- | separator ──────────
+    # Find the index of the first separator row
+    sep_idx: int | None = None
+    for i, row in enumerate(rows):
+        if re.match(r"^\|\s*[-:]+[\s|:-]*\|$", row):
+            sep_idx = i
+            break
+
+    if sep_idx is not None:
+        orphans  = rows[:sep_idx]       # every row above the separator
+        rest     = rows[sep_idx + 1:]   # body rows after separator
+
+        def _is_empty_row(r: str) -> bool:
+            """True when the row has no meaningful textual content."""
+            cells = [c.strip() for c in r.strip().strip("|").split("|")]
+            return all(not c or c in ("-", "–", "—", ".") for c in cells)
+
+        def _looks_like_header(r: str) -> bool:
+            """True when most cells are non-empty — indicates a real column header row."""
+            cells = [c.strip() for c in r.strip().strip("|").split("|")]
+            if not cells:
+                return False
+            non_empty = sum(1 for c in cells if c)
+            return non_empty / max(len(cells), 1) >= 0.5  # ≥50 % cells filled
+
+        if len(orphans) == 0:
+            # No header at all — insert a synthetic blank header so markdown
+            # renders the table rather than rejecting it.
+            col_count = max(
+                (rows[sep_idx].count("|") - 1),
+                *[r.count("|") - 1 for r in rest if r.startswith("|")],
+                1,
+            )
+            blank_header = "| " + " | ".join([""] * col_count) + " |"
+            rows = [blank_header, rows[sep_idx]] + rest
+
+        elif len(orphans) == 1 and _looks_like_header(orphans[0]):
+            # Exactly one row before --- and it has enough content → real header.
+            # Leave untouched.
+            pass
+
+        else:
+            # Multiple rows above ---, or the single row looks like an orphan.
+            # Keep the last row before --- as the header if it looks like one;
+            # otherwise use a blank synthetic header.
+            real_header_candidate = orphans[-1]
+            above_header          = orphans[:-1]
+
+            if _looks_like_header(real_header_candidate):
+                header_row = real_header_candidate
+            else:
+                # Demote this row too — all orphans go to body
+                above_header  = orphans
+                col_count     = rows[sep_idx].count("|") - 1
+                header_row    = "| " + " | ".join([""] * max(col_count, 1)) + " |"
+
+            # Non-empty orphans become the first body rows (they carry real data)
+            kept_orphans = [o for o in above_header if not _is_empty_row(o)]
+            rows = [header_row, rows[sep_idx]] + kept_orphans + rest
+
+    else:
+        # No separator found — insert one after the first table row so the
+        # table renders in markdown (first row becomes the header).
+        table_rows = [r for r in rows if r.startswith("|")]
+        if len(table_rows) > 1:
+            first_pipe_idx = next(i for i, r in enumerate(rows) if r.startswith("|"))
+            col_count = rows[first_pipe_idx].count("|") - 1
+            sep = "| " + " | ".join(["---"] * max(col_count, 1)) + " |"
+            rows.insert(first_pipe_idx + 1, sep)
+
+    # ── Step 4: squeeze consecutive blank lines ──────────────────────────────
+    final: list[str] = []
+    prev_blank = False
+    for row in rows:
+        is_blank = not row.strip()
+        if is_blank and prev_blank:
+            continue
+        final.append(row)
+        prev_blank = is_blank
+
+    return "\n".join(final)
+
+
 def _replace_tables_with_content(markdown: str, tables) -> str:
     """Replace Mistral table placeholder links with their actual content.
 
@@ -249,37 +402,54 @@ def _replace_tables_with_content(markdown: str, tables) -> str:
     This function builds a lookup map from table ``id`` → ``content`` and
     substitutes every placeholder so the final markdown contains the actual
     table rows instead of dead links.
+
+    Handles both id styles Mistral uses in the wild:
+      * ``id = "tbl-0"``   → link is ``[tbl-0.md](tbl-0.md)``
+      * ``id = "tbl-0.md"`` → link is ``[tbl-0.md](tbl-0.md)``
     """
     if not tables:
         return markdown
 
-    # Build id → content map  (id is e.g. "tbl-0", link is "[tbl-0.md](tbl-0.md)")
+    # Build a normalised id → content map.
+    # Store every table under BOTH the raw id and the id without ".md"
+    # so lookups succeed regardless of which variant Mistral uses.
     table_map: dict[str, str] = {}
     for tbl in tables:
         tbl_id      = getattr(tbl, "id",      None)
         tbl_content = getattr(tbl, "content", None)
-        if tbl_id and tbl_content:
-            table_map[tbl_id] = tbl_content
+        if not tbl_id or not tbl_content:
+            continue
+        cleaned = _normalize_table_markdown(tbl_content)
+        table_map[tbl_id] = cleaned
+        # Also index without the ".md" suffix (and with it) for fuzzy matching
+        if tbl_id.endswith(".md"):
+            table_map[tbl_id[:-3]] = cleaned
+        else:
+            table_map[tbl_id + ".md"] = cleaned
 
     if not table_map:
         return markdown
 
     def _replace_table(match: re.Match) -> str:
-        # match.group(1) is the link text, e.g. "tbl-0.md"
-        # Derive the table id by stripping the ".md" suffix
-        link_text = match.group(1)
-        tbl_id    = link_text[:-3] if link_text.endswith(".md") else link_text
-        content   = table_map.get(tbl_id)
-        if content is None:
-            # Try partial/prefix matching as a fallback
-            for k, v in table_map.items():
-                if k.startswith(tbl_id) or tbl_id.startswith(k):
-                    content = v
-                    break
-        return content if content is not None else match.group(0)
+        link_text = match.group(1)          # e.g. "tbl-0.md"
+        href      = match.group(2)          # e.g. "tbl-0.md"
 
-    # Match only plain (non-image) links: [text](text)  — no leading "!"
-    return re.sub(r"(?<!!)\[([^\]]+\.md)\]\([^)]+\.md\)", _replace_table, markdown)
+        # Try exact matches first (both link text and href as keys)
+        for key in (link_text, href,
+                    link_text[:-3] if link_text.endswith(".md") else link_text + ".md",
+                    href[:-3]      if href.endswith(".md")      else href      + ".md"):
+            if key in table_map:
+                return table_map[key]
+
+        # Last resort: prefix / substring match
+        for k, v in table_map.items():
+            if k.startswith(link_text) or link_text.startswith(k):
+                return v
+
+        return match.group(0)   # leave untouched if nothing matched
+
+    # Match plain (non-image) markdown links whose text/href end with ".md"
+    return re.sub(r"(?<!!)\[([^\]]+)\]\(([^)\s]+)\)", _replace_table, markdown)
 
 
 # ── main sync worker (runs in thread pool) ───────────────────────────────────
